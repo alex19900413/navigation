@@ -66,9 +66,9 @@ static void pf_kdtree_draw_node(pf_kdtree_t *self, pf_kdtree_node_t *node, rtk_f
 pf_kdtree_t *pf_kdtree_alloc(int max_size)
 {
   pf_kdtree_t *self;
-
+  //calloc 也用于分配内存空间。调用形式： (类型说明符*)calloc(n,size) 功能：在内存动态存储区中分配n块长度为“size”字节的连续区域。函数的返回值为该区域的首地址
   self = calloc(1, sizeof(pf_kdtree_t));
-
+  //为什么是0.5？
   self->size[0] = 0.50;
   self->size[1] = 0.50;
   self->size[2] = (10 * M_PI / 180);
@@ -109,6 +109,11 @@ void pf_kdtree_clear(pf_kdtree_t *self)
 
 ////////////////////////////////////////////////////////////////////////////////
 // Insert a pose into the tree.
+/*
+self,一颗kdtree
+pose，位姿，在节点中用key[3]表示
+value，权重，如果位姿被重复插入，那么权重就会增大
+*/
 void pf_kdtree_insert(pf_kdtree_t *self, pf_vector_t pose, double value)
 {
   int key[3];
@@ -117,6 +122,7 @@ void pf_kdtree_insert(pf_kdtree_t *self, pf_vector_t pose, double value)
   key[1] = floor(pose.v[1] / self->size[1]);
   key[2] = floor(pose.v[2] / self->size[2]);
 
+  //所有新的pose和value值，都从根节点处插入
   self->root = pf_kdtree_insert_node(self, NULL, self->root, key, value);
 
   // Test code
@@ -212,6 +218,13 @@ int pf_kdtree_equal(pf_kdtree_t *self, int key_a[], int key_b[])
 
 ////////////////////////////////////////////////////////////////////////////////
 // Insert a node into the tree
+/*
+self,指定kdtree
+parent，指定parent节点，主要是用来更新深度层的
+node，表示从哪个节点开始插入，一般是root。因为kdtree里有一个指针nodes，就是指向根节点
+key，待插入的pose
+value，权重
+*/
 pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *parent,
                                         pf_kdtree_node_t *node, int key[], double value)
 {
@@ -219,13 +232,14 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
   int split, max_split;
 
   // If the node doesnt exist yet...
+  //如一开始，树没有节点，先创建根节点
   if (node == NULL)
   {
     assert(self->node_count < self->node_max_count);
     node = self->nodes + self->node_count++;
-    memset(node, 0, sizeof(pf_kdtree_node_t));
+    memset(node, 0, sizeof(pf_kdtree_node_t));    
 
-    node->leaf = 1;
+    node->leaf = 1;     //表示其是叶子节点了，可以往下层加两个children节点
 
     if (parent == NULL)
       node->depth = 0;
@@ -236,7 +250,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       node->key[i] = key[i];
 
     node->value = value;
-    self->leaf_count += 1;
+    self->leaf_count += 1;      //叶子节点为啥要加1？根节点也是叶子节点？
   }
 
   // If the node exists, and it is a leaf node...
@@ -255,6 +269,8 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       // split
       max_split = 0;
       node->pivot_dim = -1;
+      //这里明明是选择了相差比较大的维度作为轴点的，并不是按层来的
+      //因为node定义了一个povit_dim来保存选则哪个维度的
       for (i = 0; i < 3; i++)
       {
         split = abs(key[i] - node->key[i]);
@@ -267,7 +283,9 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       assert(node->pivot_dim >= 0);
 
       node->pivot_value = (key[node->pivot_dim] + node->key[node->pivot_dim]) / 2.0;
-
+      //将node作为父节点，讲node自身的key value与要插入的key value作为两个children传到下一层
+      //children[0],表示左节点
+      //为什么要把自身节点重新插入一下？    这也就出现了知乎作者提到了，如果插入n个点，树最多要2n的空间来保存
       if (key[node->pivot_dim] < node->pivot_value)
       {
         node->children[0] = pf_kdtree_insert_node(self, node, NULL, key, value);
@@ -279,7 +297,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
         node->children[1] = pf_kdtree_insert_node(self, node, NULL, key, value);
       }
 
-      node->leaf = 0;
+      node->leaf = 0;     //表示其有左右子节点了
       self->leaf_count -= 1;
     }
   }

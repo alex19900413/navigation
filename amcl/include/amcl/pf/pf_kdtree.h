@@ -40,11 +40,11 @@ typedef struct pf_kdtree_node
   int leaf, depth;
 
   // Pivot dimension and value
-  int pivot_dim;
-  double pivot_value;
+  int pivot_dim;          //轴点处于第几维
+  double pivot_value;     //轴点的值，相当于split点。轴点值=（当前节点值+待加入节点值）/ 2
 
   // The key for this node
-  int key[3];
+  int key[3];             
 
   // The value for this node
   double value;
@@ -62,6 +62,7 @@ typedef struct pf_kdtree_node
 typedef struct
 {
   // Cell size
+  //用来保存位姿参数，x，y，Θ
   double size[3];
 
   // The root node of the tree
@@ -69,7 +70,7 @@ typedef struct
 
   // The number of nodes in the tree
   int node_count, node_max_count;
-  pf_kdtree_node_t *nodes;
+  pf_kdtree_node_t *nodes;    //在alloc函数中，会给kdtree分配连续的节点空间。nodes指向树的开头，即根节点
 
   // The number of leaf nodes in the tree
   int leaf_count;
