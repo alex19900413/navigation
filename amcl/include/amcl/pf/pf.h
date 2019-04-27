@@ -56,6 +56,7 @@ typedef double (*pf_sensor_model_fn_t) (void *sensor_data,
 
 
 // Information for a single sample
+//用来描述单个采样点
 typedef struct
 {
   // Pose represented by this sample
@@ -68,6 +69,7 @@ typedef struct
 
 
 // Information for a cluster of samples
+//集群，就是把pose视为三维点，27个方格内的点都归于该pose的集群
 typedef struct
 {
   // Number of samples
@@ -81,12 +83,14 @@ typedef struct
   pf_matrix_t cov;
 
   // Workspace
+  //集群的统计信息，角度的一种方差，在pf_cluster_stats中有计算
   double m[4], c[2][2];
   
 } pf_cluster_t;
 
 
 // Information for a set of samples
+//粒子集合
 typedef struct _pf_sample_set_t
 {
   // The samples
@@ -103,11 +107,12 @@ typedef struct _pf_sample_set_t
   // Filter statistics
   pf_vector_t mean;
   pf_matrix_t cov;
-  int converged; 
+  int converged;          //收敛 
 } pf_sample_set_t;
 
 
 // Information for an entire filter
+//滤波器数据结构
 typedef struct _pf_t
 {
   // This min and max number of samples
