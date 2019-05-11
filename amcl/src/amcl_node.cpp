@@ -331,8 +331,17 @@ main(int argc, char** argv)
 
 
 
-
-AmclNode::AmclNode() :
+/**
+ * 构造函数总结：
+ * 1，从参数服务器中获取参数，初始化成员变量
+ * 2，发布2个话题：里程计位姿"amcl_pose",粒子点云“particlecloud”
+ * 3，发布3个服务："global_localization"，"request_nomotion_update"，"set_map"
+ * 4，里程计与激光雷达同步，并在laserReceived里做融合
+ * 5，订阅1个半话题："initialpose"。如果需要，则订阅“map”，否则静态加载地图
+ * 6，动态参数配置
+ * 7，激光数据定期监测
+*/
+AmclNode::AmclNode() :  
         sent_first_transform_(false),
         latest_tf_valid_(false),
         map_(NULL),
@@ -348,28 +357,35 @@ AmclNode::AmclNode() :
   boost::recursive_mutex::scoped_lock l(configuration_mutex_);
 
   // Grab params off the param server
+  //判断是否订阅地图信息。这里应该是加载的静态地图
   private_nh_.param("use_map_topic", use_map_topic_, false);
+  //读到地图后，会将此变量设置为true。表示只读一次地图
   private_nh_.param("first_map_only", first_map_only_, false);
 
+  //只有save_pose_period用到
   double tmp;
   private_nh_.param("gui_publish_rate", tmp, -1.0);
   gui_publish_period = ros::Duration(1.0/tmp);
   private_nh_.param("save_pose_rate", tmp, 0.5);
+  //设置多久保存一次位姿数据
   save_pose_period = ros::Duration(1.0/tmp);
-
+  //激光雷达相关参数
   private_nh_.param("laser_min_range", laser_min_range_, -1.0);
   private_nh_.param("laser_max_range", laser_max_range_, -1.0);
   private_nh_.param("laser_max_beams", max_beams_, 30);
+  //粒子滤波器参数
   private_nh_.param("min_particles", min_particles_, 100);
   private_nh_.param("max_particles", max_particles_, 5000);
+  //如下两个是粒子滤波器参数，叫做粒子群参数
   private_nh_.param("kld_err", pf_err_, 0.01);
   private_nh_.param("kld_z", pf_z_, 0.99);
+  //里程计模型参数
   private_nh_.param("odom_alpha1", alpha1_, 0.2);
   private_nh_.param("odom_alpha2", alpha2_, 0.2);
   private_nh_.param("odom_alpha3", alpha3_, 0.2);
   private_nh_.param("odom_alpha4", alpha4_, 0.2);
   private_nh_.param("odom_alpha5", alpha5_, 0.2);
-  
+  //如下四个参数都是激光雷达似然函数参数
   private_nh_.param("do_beamskip", do_beamskip_, false);
   private_nh_.param("beam_skip_distance", beam_skip_distance_, 0.5);
   private_nh_.param("beam_skip_threshold", beam_skip_threshold_, 0.3);
@@ -381,7 +397,7 @@ AmclNode::AmclNode() :
   {
     private_nh_.param("beam_skip_error_threshold", beam_skip_error_threshold_, 0.9);
   }
-
+  //如下是激光雷达模型参数
   private_nh_.param("laser_z_hit", z_hit_, 0.95);
   private_nh_.param("laser_z_short", z_short_, 0.1);
   private_nh_.param("laser_z_max", z_max_, 0.05);
@@ -405,6 +421,7 @@ AmclNode::AmclNode() :
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD;
   }
 
+  //里程计模型参数
   private_nh_.param("odom_model_type", tmp_model_type, std::string("diff"));
   if(tmp_model_type == "diff")
     odom_model_type_ = ODOM_MODEL_DIFF;
@@ -420,12 +437,14 @@ AmclNode::AmclNode() :
              tmp_model_type.c_str());
     odom_model_type_ = ODOM_MODEL_DIFF;
   }
-
+  //下两个参数用来给粒子滤波器做判断，是否需要更新
   private_nh_.param("update_min_d", d_thresh_, 0.2);
   private_nh_.param("update_min_a", a_thresh_, M_PI/6.0);
+  //
   private_nh_.param("odom_frame_id", odom_frame_id_, std::string("odom"));
   private_nh_.param("base_frame_id", base_frame_id_, std::string("base_link"));
   private_nh_.param("global_frame_id", global_frame_id_, std::string("map"));
+  //重分类的频率
   private_nh_.param("resample_interval", resample_interval_, 2);
   double tmp_tol;
   private_nh_.param("transform_tolerance", tmp_tol, 0.1);
@@ -440,10 +459,10 @@ AmclNode::AmclNode() :
     private_nh_.param("bag_scan_period", bag_scan_period, -1.0);
     bag_scan_period_.fromSec(bag_scan_period);
   }
-
+  //初始化位姿
   updatePoseFromServer();
 
-  //这里啥都没做
+  //将这个变量初始化为1s
   cloud_pub_interval.fromSec(1.0);
   //tf坐标变换发布者，定义tf变换关系，tfb_调用sendTransform来发布tf变换话题
   tfb_ = new tf::TransformBroadcaster();
@@ -461,9 +480,11 @@ AmclNode::AmclNode() :
   //发布服务，没运动模型更新的情况下，也暂时更新粒子群
   nomotion_update_srv_= nh_.advertiseService("request_nomotion_update", &AmclNode::nomotionUpdateCallback, this);
   set_map_srv_= nh_.advertiseService("set_map", &AmclNode::setMapCallback, this);
-  //这里用了订阅的另一种方式，订阅话题为scan_topic_
+  //这里用了message_filter的方式，订阅话题为scan_topic_，但是，并没有用得到时间同步
+  //如下这三个函数，是里程计和激光雷达的融合
   laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
   //调用tf变换，将激光雷达的数据，转到odom下
+  //注意，这里使用了tf::MessageFilter，传入的参数1是message_filter，参数2是tf_listener,参数3是topic，参数4是频率
   laser_scan_filter_ = 
           new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_, 
                                                         *tf_, 
@@ -1184,6 +1205,7 @@ AmclNode::setMapCallback(nav_msgs::SetMap::Request& req,
 void
 AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 {
+  //用于激光雷达数据监测
   last_laser_received_ts_ = ros::Time::now();
   if( map_ == NULL ) {
     return;

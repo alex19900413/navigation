@@ -62,6 +62,7 @@ void Costmap2D::deleteMaps()
   costmap_ = NULL;
 }
 
+//地图是一个x*y的数组
 void Costmap2D::initMaps(unsigned int size_x, unsigned int size_y)
 {
   boost::unique_lock<mutex_t> lock(*access_);
@@ -69,6 +70,7 @@ void Costmap2D::initMaps(unsigned int size_x, unsigned int size_y)
   costmap_ = new unsigned char[size_x * size_y];
 }
 
+//重新构造地图大小
 void Costmap2D::resizeMap(unsigned int size_x, unsigned int size_y, double resolution,
                           double origin_x, double origin_y)
 {

@@ -69,6 +69,7 @@ pf_kdtree_t *pf_kdtree_alloc(int max_size)
   //calloc 也用于分配内存空间。调用形式： (类型说明符*)calloc(n,size) 功能：在内存动态存储区中分配n块长度为“size”字节的连续区域。函数的返回值为该区域的首地址
   self = calloc(1, sizeof(pf_kdtree_t));
   //为什么是0.5？
+  //每个位姿的值，都要先按比例除以此参数。如位姿是（1,2,Θ），那么在节点中的key值为（2,4，）。kdtree里保存的，是放大了的位姿
   self->size[0] = 0.50;
   self->size[1] = 0.50;
   self->size[2] = (10 * M_PI / 180);
@@ -232,15 +233,21 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
   int split, max_split;
 
   // If the node doesnt exist yet...
-  //如一开始，树没有节点，先创建根节点
+  //如一开始，树没有节点，先创建根节点。即node=root，parent=null
+  //如果指定了父节点，如node=null，parent=指定，那么创建的新的节点，就是parent的子节点
   if (node == NULL)
   {
+    //不能超过最大树的范围
     assert(self->node_count < self->node_max_count);
+    //根节点的地址等于树最开始的地址
     node = self->nodes + self->node_count++;
+    //重新分配节点指针的内存大小
     memset(node, 0, sizeof(pf_kdtree_node_t));    
 
+    //表示这个节点是叶子节点，可以继续插入左右节点
     node->leaf = 1;     //表示其是叶子节点了，可以往下层加两个children节点
 
+    //也可以指定一个父节点，从父节点插入。这时候，第三个参数就不能使root节点了。因为root节点没有父节点
     if (parent == NULL)
       node->depth = 0;
     else
@@ -250,6 +257,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       node->key[i] = key[i];
 
     node->value = value;
+    //这是树的叶子节点总数量，根节点也是个叶子节点
     self->leaf_count += 1;      //叶子节点为啥要加1？根节点也是叶子节点？
   }
 
@@ -288,6 +296,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       //为什么要把自身节点重新插入一下？    这也就出现了知乎作者提到了，如果插入n个点，树最多要2n的空间来保存
       if (key[node->pivot_dim] < node->pivot_value)
       {
+        //小于pivot值的话，就将其设置为node的左子节点，同事将节点自身的值复制到其右子节点
         node->children[0] = pf_kdtree_insert_node(self, node, NULL, key, value);
         node->children[1] = pf_kdtree_insert_node(self, node, NULL, node->key, node->value);
       }
@@ -303,6 +312,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
   }
 
   // If the node exists, and it has children...
+  //如果不是叶子节点，即左右都有节点，那就继续往下插入
   else
   {
     assert(node->children[0] != NULL);

@@ -107,6 +107,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
             convert_offset_ = 0.0;
 
         bool use_quadratic;
+        //默认使用Quadratical计算器,且potential计算器根本就没实现.哈哈.正如其名,潜在的计算器
         private_nh.param("use_quadratic", use_quadratic, true);
         if (use_quadratic)
             p_calc_ = new QuadraticCalculator(cx, cy);
@@ -114,6 +115,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
             p_calc_ = new PotentialCalculator(cx, cy);
 
         bool use_dijkstra;
+        //默认是使用dijkstra最短路径算法,可以改为astar
         private_nh.param("use_dijkstra", use_dijkstra, true);
         if (use_dijkstra)
         {
@@ -126,12 +128,14 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
             planner_ = new AStarExpansion(p_calc_, cx, cy);
 
         bool use_grid_path;
+        //这两个路径有啥区别呢?
         private_nh.param("use_grid_path", use_grid_path, false);
         if (use_grid_path)
             path_maker_ = new GridPath(p_calc_);
         else
             path_maker_ = new GradientPath(p_calc_);
 
+        //
         orientation_filter_ = new OrientationFilter();
 
         plan_pub_ = private_nh.advertise<nav_msgs::Path>("plan", 1);
@@ -196,13 +200,14 @@ void GlobalPlanner::mapToWorld(double mx, double my, double& wx, double& wy) {
     wy = costmap_->getOriginY() + (my+convert_offset_) * costmap_->getResolution();
 }
 
+//跟costmap的函数一样的
 bool GlobalPlanner::worldToMap(double wx, double wy, double& mx, double& my) {
     double origin_x = costmap_->getOriginX(), origin_y = costmap_->getOriginY();
     double resolution = costmap_->getResolution();
-
+    //w = origin + cell_x * resolution,如果origin定义为左上角的点
     if (wx < origin_x || wy < origin_y)
         return false;
-
+    //offset等于0
     mx = (wx - origin_x) / resolution - convert_offset_;
     my = (wy - origin_y) / resolution - convert_offset_;
 
@@ -220,6 +225,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
 bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
                            double tolerance, std::vector<geometry_msgs::PoseStamped>& plan) {
     boost::mutex::scoped_lock lock(mutex_);
+    //这个初始化变量是指的什么?
     if (!initialized_) {
         ROS_ERROR(
                 "This planner has not been initialized yet, but it is being used, please call initialize() before use");
@@ -233,6 +239,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
     std::string global_frame = frame_id_;
 
     //until tf can handle transforming things that are way in the past... we'll require the goal to be in our global frame
+    //tf变换的前缀是节点名,tf不能直接求得frame_id吗,一定要用resolve函数?
     if (tf::resolve(tf_prefix_, goal.header.frame_id) != tf::resolve(tf_prefix_, global_frame)) {
         ROS_ERROR(
                 "The goal pose passed to this planner must be in the %s frame.  It is instead in the %s frame.", tf::resolve(tf_prefix_, global_frame).c_str(), tf::resolve(tf_prefix_, goal.header.frame_id).c_str());
@@ -250,12 +257,13 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
 
     unsigned int start_x_i, start_y_i, goal_x_i, goal_y_i;
     double start_x, start_y, goal_x, goal_y;
-
+    //将起点坐标转换到地图的坐标中去,这里调用的是costmap中的函数
     if (!costmap_->worldToMap(wx, wy, start_x_i, start_y_i)) {
         ROS_WARN(
                 "The robot's start position is off the global costmap. Planning will always fail, are you sure the robot has been properly localized?");
         return false;
     }
+    //false
     if(old_navfn_behavior_){
         start_x = start_x_i;
         start_y = start_y_i;
@@ -275,12 +283,14 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
         goal_x = goal_x_i;
         goal_y = goal_y_i;
     }else{
+        //这跟上面的函数一样的
         worldToMap(wx, wy, goal_x, goal_y);
     }
 
     //clear the starting cell within the costmap because we know it can't be an obstacle
     tf::Stamped<tf::Pose> start_pose;
     tf::poseStampedMsgToTF(start, start_pose);
+    //这个函数的一个参数没有用到,直接调用costmap的函数将x,y处设置为free_space
     clearRobotCell(start_pose, start_x_i, start_y_i);
 
     int nx = costmap_->getSizeInCellsX(), ny = costmap_->getSizeInCellsY();

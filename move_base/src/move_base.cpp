@@ -55,6 +55,7 @@ namespace move_base {
     planner_plan_(NULL), latest_plan_(NULL), controller_plan_(NULL),
     runPlanner_(false), setup_(false), p_freq_change_(false), c_freq_change_(false), new_global_plan_(false) {
 
+    //创建actionlib服务器,绑定回调函数
     as_ = new MoveBaseActionServer(ros::NodeHandle(), "move_base", boost::bind(&MoveBase::executeCb, this, _1), false);
 
     ros::NodeHandle private_nh("~");
@@ -64,6 +65,7 @@ namespace move_base {
 
     //get some parameters that will be global to the move base node
     std::string global_planner, local_planner;
+    //这里默认都是老版本的全局规划和局部规划
     private_nh.param("base_global_planner", global_planner, std::string("navfn/NavfnROS"));
     private_nh.param("base_local_planner", local_planner, std::string("base_local_planner/TrajectoryPlannerROS"));
     private_nh.param("global_costmap/robot_base_frame", robot_base_frame_, std::string("base_link"));
@@ -83,18 +85,22 @@ namespace move_base {
     controller_plan_ = new std::vector<geometry_msgs::PoseStamped>();
 
     //set up the planner's thread
+    //创建规划线程
     planner_thread_ = new boost::thread(boost::bind(&MoveBase::planThread, this));
 
     //for comanding the base
     vel_pub_ = nh.advertise<geometry_msgs::Twist>("cmd_vel", 1);
     current_goal_pub_ = private_nh.advertise<geometry_msgs::PoseStamped>("current_goal", 0 );
 
+    //这个节点太奢侈了,就只发布一个goal的topic
     ros::NodeHandle action_nh("move_base");
     action_goal_pub_ = action_nh.advertise<move_base_msgs::MoveBaseActionGoal>("goal", 1);
 
     //we'll provide a mechanism for some people to send goals as PoseStamped messages over a topic
     //they won't get any useful information back about its status, but this is useful for tools
     //like nav_view and rviz
+
+    //这个节点也比较奢侈,专门订阅如rviz等的话题,然后通过action_goal_pub发出goal的topic
     ros::NodeHandle simple_nh("move_base_simple");
     goal_sub_ = simple_nh.subscribe<geometry_msgs::PoseStamped>("goal", 1, boost::bind(&MoveBase::goalCB, this, _1));
 
@@ -109,7 +115,9 @@ namespace move_base {
     private_nh.param("recovery_behavior_enabled", recovery_behavior_enabled_, true);
 
     //create the ros wrapper for the planner's costmap... and initializer a pointer we'll use with the underlying map
+    //建立一个planner_costmap,这个跟controller_costmap有啥区别?
     planner_costmap_ros_ = new costmap_2d::Costmap2DROS("global_costmap", tf_);
+    //停止更新,初始化为false
     planner_costmap_ros_->pause();
 
     //initialize the global planner
@@ -122,6 +130,7 @@ namespace move_base {
     }
 
     //create the ros wrapper for the controller's costmap... and initializer a pointer we'll use with the underlying map
+    //
     controller_costmap_ros_ = new costmap_2d::Costmap2DROS("local_costmap", tf_);
     controller_costmap_ros_->pause();
 
@@ -209,6 +218,7 @@ namespace move_base {
 
     recovery_behavior_enabled_ = config.recovery_behavior_enabled;
     clearing_rotation_allowed_ = config.clearing_rotation_allowed;
+    //默认false,即节点inactive时,也默认加载costmap
     shutdown_costmaps_ = config.shutdown_costmaps;
 
     oscillation_timeout_ = config.oscillation_timeout;
@@ -456,13 +466,16 @@ namespace move_base {
     tc_.reset();
   }
 
+  //根据goal,最后得到一个位姿的vector
   bool MoveBase::makePlan(const geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& plan){
+    //这个锁是哪个地方的锁
     boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(planner_costmap_ros_->getCostmap()->getMutex()));
 
     //make sure to set the plan to be empty initially
     plan.clear();
 
     //since this gets called on handle activate
+    //这个应该放在最前面吧
     if(planner_costmap_ros_ == NULL) {
       ROS_ERROR("Planner costmap ROS is NULL, unable to create global plan");
       return false;
@@ -525,9 +538,11 @@ namespace move_base {
     return true;
   }
 
+  //这个函数奇怪,goal_pose_msg可能是局部坐标系的值吗?不是全局坐标系?
   geometry_msgs::PoseStamped MoveBase::goalToGlobalFrame(const geometry_msgs::PoseStamped& goal_pose_msg){
     std::string global_frame = planner_costmap_ros_->getGlobalFrameID();
     tf::Stamped<tf::Pose> goal_pose, global_pose;
+    //将PoseStamped转成Stamped,因为tf的类型是stamped类型
     poseStampedMsgToTF(goal_pose_msg, goal_pose);
 
     //just get the latest available transform... for accuracy they should send
@@ -535,6 +550,7 @@ namespace move_base {
     goal_pose.stamp_ = ros::Time();
 
     try{
+      //target_frame,stamped_in,stamped_out
       tf_.transformPose(global_frame, goal_pose, global_pose);
     }
     catch(tf::TransformException& ex){
@@ -544,6 +560,7 @@ namespace move_base {
     }
 
     geometry_msgs::PoseStamped global_pose_msg;
+    //将tf变换后的stamped转换为PoseStamped的msg
     tf::poseStampedTFToMsg(global_pose, global_pose_msg);
     return global_pose_msg;
   }
@@ -554,6 +571,7 @@ namespace move_base {
     planner_cond_.notify_one();
   }
 
+  //路径规划线程函数,在while循环里,使用线程的条件唤醒方式,进行一次次规划
   void MoveBase::planThread(){
     ROS_DEBUG_NAMED("move_base_plan_thread","Starting planner thread...");
     ros::NodeHandle n;
@@ -562,21 +580,26 @@ namespace move_base {
     boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
     while(n.ok()){
       //check if we should run the planner (the mutex is locked)
+      //如果runPlanner是false时,planner才会进入wait,从而等待被唤醒
+      //当给定goal后,runplanner被置true,且palner_cond被唤醒,同时退出子while循环
       while(wait_for_wake || !runPlanner_){
         //if we should not be running the planner then suspend this thread
         ROS_DEBUG_NAMED("move_base_plan_thread","Planner thread is suspending");
+        //wait后,原子的解锁.当被唤醒后,立马又获得锁
         planner_cond_.wait(lock);
         wait_for_wake = false;
       }
       ros::Time start_time = ros::Time::now();
 
       //time to plan! get a copy of the goal and unlock the mutex
+      //被唤醒后,goal肯定是被更新了
       geometry_msgs::PoseStamped temp_goal = planner_goal_;
       lock.unlock();
       ROS_DEBUG_NAMED("move_base_plan_thread","Planning...");
 
       //run planner
       planner_plan_->clear();
+      //实际上是调用global_planner的makePlan函数
       bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);
 
       if(gotPlan){
@@ -603,6 +626,7 @@ namespace move_base {
       //if we didn't get a plan and we are in the planning state (the robot isn't moving)
       else if(state_==PLANNING){
         ROS_DEBUG_NAMED("move_base_plan_thread","No Plan...");
+        //这里设置路径规划的最长时间为5s,从上次路径规划完成开始计时
         ros::Time attempt_end = last_valid_plan_ + ros::Duration(planner_patience_);
 
         //check if we've tried to make a plan for over our time limit or our maximum number of retries
@@ -610,6 +634,7 @@ namespace move_base {
         //is negative (the default), it is just ignored and we have the same behavior as ever
         lock.lock();
         planning_retries_++;
+        //max_planning_retries_的默认值为-1,所以总是true,跟attempet_end没关系.如果设置让其多planner几次,可以在这里修改
         if(runPlanner_ &&
            (ros::Time::now() > attempt_end || planning_retries_ > uint32_t(max_planning_retries_))){
           //we'll move into our obstacle clearing mode
@@ -626,6 +651,7 @@ namespace move_base {
       lock.lock();
 
       //setup sleep interface if needed
+      //不使用定时规划
       if(planner_frequency_ > 0){
         ros::Duration sleep_time = (start_time + ros::Duration(1.0/planner_frequency_)) - ros::Time::now();
         if (sleep_time > ros::Duration(0.0)){
@@ -638,17 +664,19 @@ namespace move_base {
 
   void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
+    //检查goal的合法性,如果不合法,actionServer则发送放弃的状态
     if(!isQuaternionValid(move_base_goal->target_pose.pose.orientation)){
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
       return;
     }
-
+    //将goal换算为全局坐标系下的坐标
     geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
 
     //we have a goal so start the planner
     boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
     planner_goal_ = goal;
     runPlanner_ = true;
+    //在planThread里面,planner等待被唤醒,
     planner_cond_.notify_one();
     lock.unlock();
 

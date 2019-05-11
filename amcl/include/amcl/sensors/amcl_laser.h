@@ -88,6 +88,9 @@ class AMCLLaser : public AMCLSensor
 
   // Update the filter based on the sensor model.  Returns true if the
   // filter has been updated.
+  /**
+   * 通过特定的感知模型，进行粒子滤波器的更新
+  */
   public: virtual bool UpdateSensor(pf_t *pf, AMCLSensorData *data);
 
   // Set the laser's pose after construction
@@ -98,6 +101,7 @@ class AMCLLaser : public AMCLSensor
   private: static double BeamModel(AMCLLaserData *data, 
                                    pf_sample_set_t* set);
   // Determine the probability for the given pose
+  //似然域模型
   private: static double LikelihoodFieldModel(AMCLLaserData *data, 
                                               pf_sample_set_t* set);
 
