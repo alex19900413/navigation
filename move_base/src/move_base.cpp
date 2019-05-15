@@ -85,7 +85,7 @@ namespace move_base {
     controller_plan_ = new std::vector<geometry_msgs::PoseStamped>();
 
     //set up the planner's thread
-    //创建规划线程
+    //创建规划线程, 也不需要启动
     planner_thread_ = new boost::thread(boost::bind(&MoveBase::planThread, this));
 
     //for comanding the base
@@ -105,8 +105,11 @@ namespace move_base {
     goal_sub_ = simple_nh.subscribe<geometry_msgs::PoseStamped>("goal", 1, boost::bind(&MoveBase::goalCB, this, _1));
 
     //we'll assume the radius of the robot to be consistent with what's specified for the costmaps
+    //内切半径
     private_nh.param("local_costmap/inscribed_radius", inscribed_radius_, 0.325);
+    //外切半径
     private_nh.param("local_costmap/circumscribed_radius", circumscribed_radius_, 0.46);
+    //没有设置,即外切半径.planning之前,会把这个范围的global和local的cost都设置为free_space
     private_nh.param("clearing_radius", clearing_radius_, circumscribed_radius_);
     private_nh.param("conservative_reset_dist", conservative_reset_dist_, 3.0);
 
@@ -115,14 +118,16 @@ namespace move_base {
     private_nh.param("recovery_behavior_enabled", recovery_behavior_enabled_, true);
 
     //create the ros wrapper for the planner's costmap... and initializer a pointer we'll use with the underlying map
-    //建立一个planner_costmap,这个跟controller_costmap有啥区别?
+    //建立一个planner_costmap,这是全局costmap.用于全局导航
     planner_costmap_ros_ = new costmap_2d::Costmap2DROS("global_costmap", tf_);
     //停止更新,初始化为false
     planner_costmap_ros_->pause();
 
     //initialize the global planner
+    //初始化全局规划器
     try {
       planner_ = bgp_loader_.createInstance(global_planner);
+      //初始化函数,根据调用的插件的不同而不同的
       planner_->initialize(bgp_loader_.getName(global_planner), planner_costmap_ros_);
     } catch (const pluginlib::PluginlibException& ex) {
       ROS_FATAL("Failed to create the %s planner, are you sure it is properly registered and that the containing library is built? Exception: %s", global_planner.c_str(), ex.what());
@@ -130,11 +135,12 @@ namespace move_base {
     }
 
     //create the ros wrapper for the controller's costmap... and initializer a pointer we'll use with the underlying map
-    //
+    //再创建一个局部costmap, 用于局部导航
     controller_costmap_ros_ = new costmap_2d::Costmap2DROS("local_costmap", tf_);
     controller_costmap_ros_->pause();
 
     //create a local planner
+    //创建并初始化局部规划器
     try {
       tc_ = blp_loader_.createInstance(local_planner);
       ROS_INFO("Created local_planner %s", local_planner.c_str());
@@ -145,16 +151,21 @@ namespace move_base {
     }
 
     // Start actively updating costmaps based on sensor data
+    //start只能激活static_layer和obstacle_layer
+    //对于static_layer,就是重新执行onInitation,对于obstacle_layer,订阅传感器topic,并更新最后一次获取数据的时间last_updated_
     planner_costmap_ros_->start();
     controller_costmap_ros_->start();
 
     //advertise a service for getting a plan
+    //发布路径规划服务,等待被call
     make_plan_srv_ = private_nh.advertiseService("make_plan", &MoveBase::planService, this);
 
     //advertise a service for clearing the costmaps
+    //发布清除costmap的服务,把全局和局部地图都清理掉
     clear_costmaps_srv_ = private_nh.advertiseService("clear_costmaps", &MoveBase::clearCostmapsService, this);
 
     //if we shutdown our costmaps when we're deactivated... we'll do that now
+    //stop就是deactive,就是不订阅传感器数据.修改状态机,未初始化
     if(shutdown_costmaps_){
       ROS_DEBUG_NAMED("move_base","Stopping costmaps initially");
       planner_costmap_ros_->stop();
@@ -162,6 +173,7 @@ namespace move_base {
     }
 
     //load any user specified recovery behaviors, and if that fails load the defaults
+    //加载recovery策略
     if(!loadRecoveryBehaviors(private_nh)){
       loadDefaultRecoveryBehaviors();
     }
@@ -280,6 +292,7 @@ namespace move_base {
     action_goal_pub_.publish(action_goal);
   }
 
+  //将地图的所有cost设置为free_space
   void MoveBase::clearCostmapWindows(double size_x, double size_y){
     tf::Stamped<tf::Pose> global_pose;
 
@@ -374,9 +387,11 @@ namespace move_base {
     }
 
     //update the copy of the costmap the planner uses
+    //将机器人外切半径范围的地图的cost更新为free_space 
     clearCostmapWindows(2 * clearing_radius_, 2 * clearing_radius_);
 
     //first try to make a plan to the exact desired goal
+    //寻找路径,第一次先尝试规划,如果不成功,则
     std::vector<geometry_msgs::PoseStamped> global_plan;
     if(!planner_->makePlan(start, req.goal, global_plan) || global_plan.empty()){
       ROS_DEBUG_NAMED("move_base","Failed to find a plan to exact goal of (%.2f, %.2f), searching for a feasible goal within tolerance", 
@@ -669,7 +684,7 @@ namespace move_base {
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
       return;
     }
-    //将goal换算为全局坐标系下的坐标
+    //将goal换算为全局(map)坐标系下的坐标
     geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
 
     //we have a goal so start the planner
@@ -683,7 +698,9 @@ namespace move_base {
     current_goal_pub_.publish(goal);
     std::vector<geometry_msgs::PoseStamped> global_plan;
 
+    //运动控制频率,默认设置为20HZ.这个频率是指的goal的检查更新频率.确认其是否已完成任务
     ros::Rate r(controller_frequency_);
+    //如果costmap关闭了.则重新打开
     if(shutdown_costmaps_){
       ROS_DEBUG_NAMED("move_base","Starting up costmaps that were shut down previously");
       planner_costmap_ros_->start();
@@ -696,9 +713,11 @@ namespace move_base {
     last_oscillation_reset_ = ros::Time::now();
     planning_retries_ = 0;
 
+    //随便初始化了一个单独的节点.来做循环判断
     ros::NodeHandle n;
     while(n.ok())
     {
+      //判断是否在dy中修改了控制频率
       if(c_freq_change_)
       {
         ROS_INFO("Setting controller frequency to %.2f", controller_frequency_);
@@ -706,6 +725,7 @@ namespace move_base {
         c_freq_change_ = false;
       }
 
+      //抢占请求,分两种情况:1,新的goal,则执行新的.2,没有new goal,那就取消目标,restart
       if(as_->isPreemptRequested()){
         if(as_->isNewGoalAvailable()){
           //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
@@ -741,10 +761,12 @@ namespace move_base {
         }
         else {
           //if we've been preempted explicitly we need to shut things down
+          //中断planner线程,重启状态机为PLANNING,是否需要关闭costmap
           resetState();
 
           //notify the ActionServer that we've successfully preempted
           ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
+          //设置状态机,表示被抢占.退出回调
           as_->setPreempted();
 
           //we'll actually return from execute after preempting
@@ -753,6 +775,7 @@ namespace move_base {
       }
 
       //we also want to check if we've changed global frames because we need to transform our goal pose
+      //map坐标系,应该不会那么容易变更吧
       if(goal.header.frame_id != planner_costmap_ros_->getGlobalFrameID()){
         goal = goalToGlobalFrame(goal);
 
@@ -782,6 +805,7 @@ namespace move_base {
       ros::WallTime start = ros::WallTime::now();
 
       //the real work on pursuing a goal is done here
+      //判断是否到达目标goal
       bool done = executeCycle(goal, global_plan);
 
       //if we're done, then we'll return from execute
@@ -1024,6 +1048,7 @@ namespace move_base {
     return false;
   }
 
+  //加载自己的recovery策略
   bool MoveBase::loadRecoveryBehaviors(ros::NodeHandle node){
     XmlRpc::XmlRpcValue behavior_list;
     if(node.getParam("recovery_behaviors", behavior_list)){
@@ -1109,6 +1134,7 @@ namespace move_base {
   }
 
   //we'll load our default recovery behaviors here
+  //默认恢复策略
   void MoveBase::loadDefaultRecoveryBehaviors(){
     recovery_behaviors_.clear();
     try{

@@ -135,7 +135,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
         else
             path_maker_ = new GradientPath(p_calc_);
 
-        //
+        //对轨迹进行平滑
         orientation_filter_ = new OrientationFilter();
 
         plan_pub_ = private_nh.advertise<nav_msgs::Path>("plan", 1);
@@ -151,7 +151,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
         //get the tf prefix
         ros::NodeHandle prefix_nh;
         tf_prefix_ = tf::getPrefixParam(prefix_nh);
-
+        //响应啥都不干,只提供时间戳和frame_id
         make_plan_srv_ = private_nh.advertiseService("make_plan", &GlobalPlanner::makePlanService, this);
 
         dsrv_ = new dynamic_reconfigure::Server<global_planner::GlobalPlannerConfig>(ros::NodeHandle("~/" + name));

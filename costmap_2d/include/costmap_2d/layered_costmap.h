@@ -163,7 +163,7 @@ private:
   bool current_;
   double minx_, miny_, maxx_, maxy_;
   unsigned int bx0_, bxn_, by0_, byn_;
-
+  //没有初始化?有一个add_plugin的函数去添加插件
   std::vector<boost::shared_ptr<Layer> > plugins_;
 
   bool initialized_;

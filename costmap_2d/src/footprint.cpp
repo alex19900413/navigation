@@ -51,7 +51,9 @@ void calculateMinAndMaxDistances(const std::vector<geometry_msgs::Point>& footpr
   for (unsigned int i = 0; i < footprint.size() - 1; ++i)
   {
     // check the distance from the robot center point to the first vertex
+    //点距离坐标原点的距离
     double vertex_dist = distance(0.0, 0.0, footprint[i].x, footprint[i].y);
+    //相邻两点的距离
     double edge_dist = distanceToLine(0.0, 0.0, footprint[i].x, footprint[i].y,
                                       footprint[i + 1].x, footprint[i + 1].y);
     min_dist = std::min(min_dist, std::min(vertex_dist, edge_dist));
@@ -138,6 +140,7 @@ void transformFootprint(double x, double y, double theta, const std::vector<geom
 void padFootprint(std::vector<geometry_msgs::Point>& footprint, double padding)
 {
   // pad footprint in place
+  //padding默认值为0.01
   for (unsigned int i = 0; i < footprint.size(); i++)
   {
     geometry_msgs::Point& pt = footprint[ i ];

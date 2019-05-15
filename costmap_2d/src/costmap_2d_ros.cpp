@@ -84,6 +84,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   ros::NodeHandle g_nh;
 
   // get our tf prefix
+  //这个节点又没初始化, 得到的前缀是啥?应该是空的
   ros::NodeHandle prefix_nh;
   std::string tf_prefix = tf::getPrefixParam(prefix_nh);
 
@@ -92,12 +93,15 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   private_nh.param("robot_base_frame", robot_base_frame_, std::string("base_link"));
 
   // make sure that we set the frames appropriately based on the tf_prefix
+  //resolve函数,当有前缀时,加上前缀
   global_frame_ = tf::resolve(tf_prefix, global_frame_);
   robot_base_frame_ = tf::resolve(tf_prefix, robot_base_frame_);
 
   ros::Time last_error = ros::Time::now();
   std::string tf_error;
   // we need to make sure that the transform between the robot base frame and the global frame is available
+  //kinetic版本才有这个函数,melodic都没有这个函数了
+  //如果没有找到tf变换关系,就会阻塞在这里
   while (ros::ok()
       && !tf_.waitForTransform(global_frame_, robot_base_frame_, ros::Time(), ros::Duration(0.1), ros::Duration(0.01),
                                &tf_error))
@@ -122,6 +126,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
 
   layered_costmap_ = new LayeredCostmap(global_frame_, rolling_window, track_unknown_space);
 
+  //通过插件加载地图.plugins参数,必须得通过xml文件设置.参考clear_costmap_recovery/test/params.yaml
   if (!private_nh.hasParam("plugins"))
   {
     resetOldParameters(private_nh);
@@ -139,6 +144,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
 
       boost::shared_ptr<Layer> plugin = plugin_loader_.createInstance(type);
       layered_costmap_->addPlugin(plugin);
+      //调用各地图的onInitialize函数
       plugin->initialize(layered_costmap_, name + "/" + pname, &tf_);
     }
   }
@@ -150,6 +156,8 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
     topic_param = "footprint_topic";
   }
 
+  //对footprint进行膨胀.问题是,为啥只膨胀了1cm?
+  //订阅的footprint.是updatemap后pub出来的
   private_nh.param(topic_param, topic, std::string("footprint"));
   footprint_sub_ = private_nh.subscribe(topic, 1, &Costmap2DROS::setUnpaddedRobotFootprintPolygon, this);
 
@@ -158,6 +166,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
     topic_param = "published_footprint";
   }
 
+  //updatemap后,更新footprint
   private_nh.param(topic_param, topic, std::string("oriented_footprint"));
   footprint_pub_ = private_nh.advertise<geometry_msgs::PolygonStamped>("footprint", 1);
 
@@ -172,6 +181,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   stopped_ = false;
 
   // Create a time r to check if the robot is moving
+  //创建一个定时器去检查小车是否有移动
   robot_stopped_ = false;
   timer_ = private_nh.createTimer(ros::Duration(.1), &Costmap2DROS::movementCB, this);
 
@@ -315,6 +325,7 @@ void Costmap2DROS::reconfigureCB(costmap_2d::Costmap2DConfig &config, uint32_t l
 
   old_config_ = config;
 
+  //开启了一个更新map的线程
   map_update_thread_ = new boost::thread(boost::bind(&Costmap2DROS::mapUpdateLoop, this, map_update_frequency));
 }
 
@@ -354,6 +365,7 @@ void Costmap2DROS::setUnpaddedRobotFootprint(const std::vector<geometry_msgs::Po
 {
   unpadded_footprint_ = points;
   padded_footprint_ = points;
+  //按1cm的精度进行了膨胀
   padFootprint(padded_footprint_, footprint_padding_);
 
   layered_costmap_->setFootprint(padded_footprint_);
@@ -392,13 +404,14 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
     return;
 
   ros::NodeHandle nh;
-  ros::Rate r(frequency);
+  ros::Rate r(frequency);   //按一定的频率刷新地图
   while (nh.ok() && !map_update_thread_shutdown_)
   {
     struct timeval start, end;
     double start_t, end_t, t_diff;
     gettimeofday(&start, NULL);
 
+    //核心在这个函数里的,layered_costmap_->updateMap(x,y,yaw)
     updateMap();
 
     gettimeofday(&end, NULL);
@@ -427,6 +440,7 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
   }
 }
 
+
 void Costmap2DROS::updateMap()
 {
   if (!stop_updates_)
@@ -438,7 +452,10 @@ void Costmap2DROS::updateMap()
       double x = pose.getOrigin().x(),
              y = pose.getOrigin().y(),
              yaw = tf::getYaw(pose.getRotation());
-
+      /**分两个阶段,第一阶段是updateBounds.第二个阶段是updateCosts
+      *这个更新,是layered_costmap调用的,会更新所有插件地图
+      *
+      */
       layered_costmap_->updateMap(x, y, yaw);
 
       geometry_msgs::PolygonStamped footprint;
@@ -517,6 +534,8 @@ void Costmap2DROS::resetLayers()
   }
 }
 
+//这个函数的robot_pose是temp变量,并没有提供位姿,怎么更新得到global_pose?
+//难道是因为tf变换关系,有一直在更新吗?
 bool Costmap2DROS::getRobotPose(tf::Stamped<tf::Pose>& global_pose) const
 {
   global_pose.setIdentity();

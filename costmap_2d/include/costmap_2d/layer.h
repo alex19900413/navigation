@@ -61,7 +61,9 @@ public:
    *
    * For more details, see "Layered Costmaps for Context-Sensitive Navigation",
    * by Lu et. Al, IROS 2014.
-   * 计算将要更新的范围
+   * 计算将要更新的范围,更新costmap的区域
+   * 主要更新max_x,max_y,这两个变量用来存放障碍物位置的,他们是定义在世界坐标系下的变量
+   * 然后updateCosts会在地图坐标系中设置障碍点.即在栅格地图设定这个点的cost
    */
   virtual void updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x, double* min_y,
                             double* max_x, double* max_y) {}
@@ -69,7 +71,7 @@ public:
   /**
    * @brief Actually update the underlying costmap, only within the bounds
    *        calculated during UpdateBounds().
-   * 更新cost
+   * 更新costmap的cost
    */
   virtual void updateCosts(Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j) {}
 

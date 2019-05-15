@@ -91,7 +91,7 @@ void LayeredCostmap::resizeMap(unsigned int size_x, unsigned int size_y, double 
     (*plugin)->matchSize();
   }
 }
-
+//每个layer的onInitLayer函数里,dy_cb新建的线程中,都会调用此函数进行更新
 void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 {
   // Lock for the remainder of this function, some plugins (e.g. VoxelLayer)
@@ -112,6 +112,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
   minx_ = miny_ = 1e30;
   maxx_ = maxy_ = -1e30;
 
+  //执行updateBounds
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
        ++plugin)
   {
@@ -145,6 +146,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     return;
 
   costmap_.resetMap(x0, y0, xn, yn);
+  //执行updateCosts
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
        ++plugin)
   {
@@ -174,7 +176,7 @@ void LayeredCostmap::setFootprint(const std::vector<geometry_msgs::Point>& footp
 {
   footprint_ = footprint_spec;
   costmap_2d::calculateMinAndMaxDistances(footprint_spec, inscribed_radius_, circumscribed_radius_);
-
+  //只有inflation_layer才有这个函数
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
       ++plugin)
   {

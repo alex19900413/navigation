@@ -72,6 +72,7 @@ void ObstacleLayer::onInitialize()
 
   std::string topics_string;
   // get the topics that we'll subscribe to from the parameter server
+  //需要在launch的yaml文件中指定观测来源,一般为base scan
   nh.param("observation_sources", topics_string, std::string(""));
   ROS_INFO("    Subscribed to Topics: %s", topics_string.c_str());
 
@@ -85,6 +86,7 @@ void ObstacleLayer::onInitialize()
   std::string source;
   while (ss >> source)
   {
+    //重映射节点.如果source是相对路径,则新节点为nh/source;如果source是绝对路径,那么新节点为source
     ros::NodeHandle source_node(nh, source);
 
     // get the parameters for the specific topic
@@ -118,6 +120,7 @@ void ObstacleLayer::onInitialize()
 
     // get the obstacle range for the sensor
     double obstacle_range = 2.5;
+    //如果能找到参数,就获取该参数值
     if (source_node.searchParam("obstacle_range", obstacle_range_param_name))
     {
       source_node.getParam(obstacle_range_param_name, obstacle_range);
@@ -134,6 +137,7 @@ void ObstacleLayer::onInitialize()
               sensor_frame.c_str());
 
     // create an observation buffer
+    //有个专门的observationBuffer类,用来保存激光雷达/点云数据
     observation_buffers_.push_back(
         boost::shared_ptr < ObservationBuffer
             > (new ObservationBuffer(topic, observation_keep_time, expected_update_rate, min_obstacle_height,
@@ -257,6 +261,7 @@ void ObstacleLayer::laserScanCallback(const sensor_msgs::LaserScanConstPtr& mess
   cloud.header = message->header;
 
   // project the scan into a point cloud
+  //激光雷达msg是距离信息,实际用的是点云信息
   try
   {
     projector_.transformLaserScanToPointCloud(message->header.frame_id, *message, cloud, *tf_);
@@ -344,15 +349,18 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
     updateOrigin(robot_x - getSizeInMetersX() / 2, robot_y - getSizeInMetersY() / 2);
   if (!enabled_)
     return;
+  //默认false,不使用.但是在clear_costmap_recovery.cpp中有设置addExtraBounds
   useExtraBounds(min_x, min_y, max_x, max_y);
 
   bool current = true;
   std::vector<Observation> observations, clearing_observations;
 
   // get the marking observations
+  //marking点,是指的occupy的网格
   current = current && getMarkingObservations(observations);
 
   // get the clearing observations
+  //clearing是指的freespace的网格
   current = current && getClearingObservations(clearing_observations);
 
   // update the global current status
@@ -590,6 +598,7 @@ void ObstacleLayer::activate()
       observation_buffers_[i]->resetLastUpdated();
   }
 }
+
 void ObstacleLayer::deactivate()
 {
   for (unsigned int i = 0; i < observation_subscribers_.size(); ++i)
