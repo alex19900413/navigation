@@ -71,6 +71,7 @@ class MapServer
       ros::NodeHandle private_nh("~");
       private_nh.param("frame_id", frame_id, std::string("map"));
       deprecated = (res != 0);
+      //如果使用yaml文件
       if (!deprecated) {
         //mapfname = fname + ".pgm";
         //std::ifstream fin((fname + ".yaml").c_str());
@@ -130,6 +131,7 @@ class MapServer
           mode = TRINARY;
         }
         try {
+          //坐标原点从yaml文件中读取,一般也是默认我左上角(0,0,0)
           doc["origin"][0] >> origin[0];
           doc["origin"][1] >> origin[1];
           doc["origin"][2] >> origin[2];
@@ -167,6 +169,7 @@ class MapServer
       ROS_INFO("Loading map from image \"%s\"", mapfname.c_str());
       try
       {
+          //加载图片,根据图片像素,按一定规则重新制作地图.一般地图是灰度图,所以就是直接copy过来
           map_server::loadMapFromFile(&map_resp_,mapfname.c_str(),res,negate,occ_th,free_th, origin, mode);
       }
       catch (std::runtime_error e)
@@ -234,6 +237,8 @@ class MapServer
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "map_server", ros::init_options::AnonymousName);
+  //地图加载有两种方式,一种是加载map.yaml文件, 一种是加载map和resolution
+  //如果不满足这两种情况,则报错
   if(argc != 3 && argc != 2)
   {
     ROS_ERROR("%s", USAGE);
@@ -243,6 +248,7 @@ int main(int argc, char **argv)
     ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
   }
   std::string fname(argv[1]);
+  //如果是yaml文件,则将res设置为0
   double res = (argc == 2) ? 0.0 : atof(argv[2]);
 
   try

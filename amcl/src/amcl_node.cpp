@@ -156,14 +156,19 @@ class AmclNode
                         nav_msgs::SetMap::Response& res);
 
     void laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan);
+    //初始化位姿回调函数,实际上就是调用下面这个handleInitialPoseMessage
     void initialPoseReceived(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg);
     void handleInitialPoseMessage(const geometry_msgs::PoseWithCovarianceStamped& msg);
+    //调用handleMap处理地图msg
     void mapReceived(const nav_msgs::OccupancyGridConstPtr& msg);
     
-    //根据地图信息创造了地图空闲区域、粒子滤波器、里程计运动模型与激光感知的似然域模型
+    //进行地图转换,记录free_space,以及初始化粒子滤波器,实例化里程计,和观测模型laser
     void handleMapMessage(const nav_msgs::OccupancyGrid& msg);
+    //清空map,laser,odom,pf的内存
     void freeMapDependentMemory();
+    //将栅格地图转换成map_t类型,这个地图的单位变成了m,且坐标原点也移到了图片中心
     map_t* convertMap( const nav_msgs::OccupancyGrid& map_msg );
+    //根据服务器参数,更新初始化位姿
     void updatePoseFromServer();
     void applyInitialPose();
 
@@ -177,6 +182,7 @@ class AmclNode
 
     //parameter for what base to use
     std::string base_frame_id_;
+    //map
     std::string global_frame_id_;
 
     bool use_map_topic_;
@@ -203,6 +209,7 @@ class AmclNode
     // Particle filter
     pf_t *pf_;
     double pf_err_, pf_z_;
+    //粒子滤波器必须在接到激光雷达数据后才会正式完成初始化
     bool pf_init_;
     pf_vector_t pf_odom_pose_;
     double d_thresh_, a_thresh_;
@@ -357,17 +364,18 @@ AmclNode::AmclNode() :
   boost::recursive_mutex::scoped_lock l(configuration_mutex_);
 
   // Grab params off the param server
-  //判断是否订阅地图信息。这里应该是加载的静态地图
+  //判断是否订阅地图信息,默认不使用
   private_nh_.param("use_map_topic", use_map_topic_, false);
-  //读到地图后，会将此变量设置为true。表示只读一次地图
+  //设置为false,每次订阅到地图信息就更新
   private_nh_.param("first_map_only", first_map_only_, false);
 
   //只有save_pose_period用到
   double tmp;
+  //大多设置为10Hz,但是很奇怪,这个参数没有被用到
   private_nh_.param("gui_publish_rate", tmp, -1.0);
   gui_publish_period = ros::Duration(1.0/tmp);
   private_nh_.param("save_pose_rate", tmp, 0.5);
-  //设置多久保存一次位姿数据
+  //设置多久保存一次位姿数据,默认2Hz
   save_pose_period = ros::Duration(1.0/tmp);
   //激光雷达相关参数
   private_nh_.param("laser_min_range", laser_min_range_, -1.0);
@@ -437,7 +445,7 @@ AmclNode::AmclNode() :
              tmp_model_type.c_str());
     odom_model_type_ = ODOM_MODEL_DIFF;
   }
-  //下两个参数用来给粒子滤波器做判断，是否需要更新
+  //下两个参数用来给粒子滤波器做判断，是否需要更新.即位置偏差0.2m,角度偏差30度,则更新一下滤波器
   private_nh_.param("update_min_d", d_thresh_, 0.2);
   private_nh_.param("update_min_a", a_thresh_, M_PI/6.0);
   //
@@ -459,12 +467,15 @@ AmclNode::AmclNode() :
     private_nh_.param("bag_scan_period", bag_scan_period, -1.0);
     bag_scan_period_.fromSec(bag_scan_period);
   }
-  //初始化位姿
+
+
+  /********************************************************************************************/
+  //初始化位姿,得到初始位置
   updatePoseFromServer();
 
   //将这个变量初始化为1s
   cloud_pub_interval.fromSec(1.0);
-  //tf坐标变换发布者，定义tf变换关系，tfb_调用sendTransform来发布tf变换话题
+  //用来发布map到odom的tf变换
   tfb_ = new tf::TransformBroadcaster();
   //tf坐标变换订阅者，订阅tf变化topic，调用transfromPoint来完成tf变换
   tf_ = new TransformListenerWrapper();
@@ -473,18 +484,20 @@ AmclNode::AmclNode() :
   pose_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("amcl_pose", 2, true);
   //发布“粒子位姿数组”
   particlecloud_pub_ = nh_.advertise<geometry_msgs::PoseArray>("particlecloud", 2, true);
-  //发布服务，目的是在没有给定初始位姿的情况下，在全局范围内初始化粒子位姿
+  //发布服务，目的是在没有给定初始位姿的情况下，在全局范围内初始化粒子位姿.使用的是均匀粒子滤波
   global_loc_srv_ = nh_.advertiseService("global_localization", 
 					 &AmclNode::globalLocalizationCallback,
                                          this);
-  //发布服务，没运动模型更新的情况下，也暂时更新粒子群
+  //发布服务，没运动模型更新的情况下，也暂时更新粒子群,回调函数只是更新了一个flag,暂时没看到怎么更新的
   nomotion_update_srv_= nh_.advertiseService("request_nomotion_update", &AmclNode::nomotionUpdateCallback, this);
+  //处理地图请求,重新初始化位姿
   set_map_srv_= nh_.advertiseService("set_map", &AmclNode::setMapCallback, this);
   //这里用了message_filter的方式，订阅话题为scan_topic_，但是，并没有用得到时间同步
   //如下这三个函数，是里程计和激光雷达的融合
   laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
   //调用tf变换，将激光雷达的数据，转到odom下
-  //注意，这里使用了tf::MessageFilter，传入的参数1是message_filter，参数2是tf_listener,参数3是topic，参数4是频率
+  //注意，这里使用了tf::MessageFilter，传入的参数1是message_filter,一般是message_filter::Subscriber，参数2是tf_listener,参数3是target_frame，参数4是频率
+  //input_frame由第一个参数提供
   laser_scan_filter_ = 
           new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_, 
                                                         *tf_, 
@@ -902,10 +915,6 @@ AmclNode::mapReceived(const nav_msgs::OccupancyGridConstPtr& msg)
 
 
 
-
-
-
-
 void
 AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
 {
@@ -920,14 +929,16 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
     ROS_WARN("Frame_id of map received:'%s' doesn't match global_frame_id:'%s'. This could cause issues with reading published topics",
              msg.header.frame_id.c_str(),
              global_frame_id_.c_str());
-
+  //清空所有依赖的内存,包括pf,odom,laser
   freeMapDependentMemory();
   // Clear queued laser objects because they hold pointers to the existing
   // map, #5202.
+  //清空lasers相关的队列,map
   lasers_.clear();
   lasers_update_.clear();
   frame_to_laser_.clear();
 
+  //就是将地图的网格的状态,设置为free,occupy,unknown这三种状态
   map_ = convertMap(msg);
 
 //把地图中不是障碍的点保存下来，由于地图信息为-1的栅格不是障碍物，因此将空闲区域保存下来
@@ -1047,6 +1058,7 @@ AmclNode::convertMap( const nav_msgs::OccupancyGrid& map_msg )
   map->size_x = map_msg.info.width;
   map->size_y = map_msg.info.height;
   map->scale = map_msg.info.resolution;
+  //将原来地图的坐标原点,平移到了中心(原坐标原点在0,0,在地图yaml文件中定义的)
   map->origin_x = map_msg.info.origin.position.x + (map->size_x / 2) * map->scale;
   map->origin_y = map_msg.info.origin.position.y + (map->size_y / 2) * map->scale;
   // Convert to player format
@@ -1055,11 +1067,11 @@ AmclNode::convertMap( const nav_msgs::OccupancyGrid& map_msg )
   for(int i=0;i<map->size_x * map->size_y;i++)
   {
     if(map_msg.data[i] == 0)
-      map->cells[i].occ_state = -1;
+      map->cells[i].occ_state = -1; //free
     else if(map_msg.data[i] == 100)
-      map->cells[i].occ_state = +1;
+      map->cells[i].occ_state = +1;//occupy
     else
-      map->cells[i].occ_state = 0;
+      map->cells[i].occ_state = 0;//unknown
   }
 
   return map;
@@ -1075,6 +1087,7 @@ AmclNode::~AmclNode()
   delete tf_;
   // TODO: delete everything allocated in constructor
 }
+
 
 bool
 AmclNode::getOdomPose(tf::Stamped<tf::Pose>& odom_pose,
@@ -1104,6 +1117,7 @@ AmclNode::getOdomPose(tf::Stamped<tf::Pose>& odom_pose,
 //drand48返回服从均匀分布的·[0.0, 1.0) 之间的 double 型随机数
 //在循环中直到产生一个位置与方向都合法的粒子，退出循环
 //也就是说，每次调用该函数产生一个随机位姿的粒子
+//随机粒子只出现在free的cell中
 pf_vector_t
 AmclNode::uniformPoseGenerator(void* arg)
 {
@@ -1112,6 +1126,7 @@ AmclNode::uniformPoseGenerator(void* arg)
   unsigned int rand_index = drand48() * free_space_indices.size();
   std::pair<int,int> free_point = free_space_indices[rand_index];
   pf_vector_t p;
+  //MAP_WXGX将地图坐标转换到世界坐标.
   p.v[0] = MAP_WXGX(map, free_point.first);
   p.v[1] = MAP_WYGY(map, free_point.second);
   p.v[2] = drand48() * 2 * M_PI - M_PI;
@@ -1151,7 +1166,7 @@ AmclNode::globalLocalizationCallback(std_srvs::Empty::Request& req,
   }
   boost::recursive_mutex::scoped_lock gl(configuration_mutex_);
   ROS_INFO("Initializing with uniform distribution");
-  //随机生成pf_->max_samples个粒子
+  //采用均匀模型初始化滤波器
   pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
                 (void *)map_);
   ROS_INFO("Global initialisation done!");
@@ -1215,7 +1230,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
   // Do we have the base->base_laser Tx yet?
   //先是从frame_to_laser_这个map里中找寻scan，如果没找到就新建一个，但是用map来储存
-  //应该是可以允许多个雷达同时工作的
+  //如果在列表中,则加入到lasers队列中,并打印其所在位置
   if(frame_to_laser_.find(laser_scan->header.frame_id) == frame_to_laser_.end())
   {
     ROS_DEBUG("Setting up laser %d (frame_id=%s)\n", (int)frame_to_laser_.size(), laser_scan->header.frame_id.c_str());
@@ -1224,12 +1239,14 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     lasers_update_.push_back(true);
     laser_index = frame_to_laser_.size();
 
+    //定义一个laser位姿(原点),将其转换到base_link,从而得到传感器相对base_link的位置关系
     tf::Stamped<tf::Pose> ident (tf::Transform(tf::createIdentityQuaternion(),
                                              tf::Vector3(0,0,0)),
                                  ros::Time(), laser_scan->header.frame_id);
     tf::Stamped<tf::Pose> laser_pose;
     try
     {
+      //
       this->tf_->transformPose(base_frame_id_, ident, laser_pose);
     }
     catch(tf::TransformException& e)
@@ -1259,7 +1276,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   }
 
   // Where was the robot when this scan was taken?
-  //这里是获取此时激光感知时刻的odom到base_link的变换
+  //这里是获取此时激光感知时刻的odom到base_link的变换,以及base_link到odom的位置
   pf_vector_t pose;
   if(!getOdomPose(latest_odom_pose_, pose.v[0], pose.v[1], pose.v[2],
                   laser_scan->header.stamp, base_frame_id_))
@@ -1547,7 +1564,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       latest_tf_ = tf::Transform(tf::Quaternion(odom_to_map.getRotation()),
                                  tf::Point(odom_to_map.getOrigin()));
       latest_tf_valid_ = true;
-
+      //发布一个map到odom的tf变换
       if (tf_broadcast_ == true)
       {
         // We want to send a transform that is good up until a

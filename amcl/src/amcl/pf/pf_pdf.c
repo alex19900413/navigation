@@ -43,6 +43,7 @@ static unsigned int pf_pdf_seed;
  *************************************************************************/
 
 // Create a gaussian pdf
+//创建一个高斯概率密度函数
 pf_pdf_gaussian_t *pf_pdf_gaussian_alloc(pf_vector_t x, pf_matrix_t cx)
 {
   pf_matrix_t cd;

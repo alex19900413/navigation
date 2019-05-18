@@ -44,12 +44,15 @@ typedef struct pf_kdtree_node
   double pivot_value;     //轴点的值，相当于split点。轴点值=（当前节点值+待加入节点值）/ 2
 
   // The key for this node
+  //就是pose,只不过等比例放大成int
   int key[3];             
 
   // The value for this node
+  //权重
   double value;
 
   // The cluster label (leaf nodes)
+  //聚类的label,注意这是个label.节点label一样则为同一个了cluster
   int cluster;
 
   // Child nodes
@@ -62,7 +65,7 @@ typedef struct pf_kdtree_node
 typedef struct
 {
   // Cell size
-  //用来保存位姿参数，x，y，Θ
+  //位姿参数的放大倍数,为啥要放大?
   double size[3];
 
   // The root node of the tree
@@ -70,7 +73,8 @@ typedef struct
 
   // The number of nodes in the tree
   int node_count, node_max_count;
-  pf_kdtree_node_t *nodes;    //在alloc函数中，会给kdtree分配连续的节点空间。nodes指向树的开头，即根节点
+  //在alloc函数中，会给kdtree分配连续的节点空间。nodes指向树的开头，即根节点
+  pf_kdtree_node_t *nodes;    
 
   // The number of leaf nodes in the tree
   int leaf_count;
@@ -94,9 +98,11 @@ extern void pf_kdtree_insert(pf_kdtree_t *self, pf_vector_t pose, double value);
 extern void pf_kdtree_cluster(pf_kdtree_t *self);
 
 // Determine the probability estimate for the given pose
+//计算给定位姿在树种的概率估计,这个函数没有使用
 extern double pf_kdtree_get_prob(pf_kdtree_t *self, pf_vector_t pose);
 
 // Determine the cluster label for the given pose
+//找到该位姿所在的聚类
 extern int pf_kdtree_get_cluster(pf_kdtree_t *self, pf_vector_t pose);
 
 

@@ -56,7 +56,7 @@ typedef double (*pf_sensor_model_fn_t) (void *sensor_data,
 
 
 // Information for a single sample
-//用来描述单个采样点
+//用来描述单个采样点,只包含pose和weight
 typedef struct
 {
   // Pose represented by this sample
@@ -90,7 +90,7 @@ typedef struct
 
 
 // Information for a set of samples
-//粒子集合
+//粒子集合,数量,kdtree,收敛flag,均值和协方差,clusters
 typedef struct _pf_sample_set_t
 {
   // The samples
@@ -133,7 +133,9 @@ typedef struct _pf_t
   double alpha_slow, alpha_fast;
 
   // Function used to draw random pose samples
+  //随机粒子生成函数
   pf_init_model_fn_t random_pose_fn;
+  //随机位姿,这个是map_t类型,在地图上随机撒粒子
   void *random_pose_data;
 
   double dist_threshold; //distance threshold in each axis over which the pf is considered to not be converged
@@ -173,6 +175,7 @@ int pf_get_cluster_stats(pf_t *pf, int cluster, double *weight,
                          pf_vector_t *mean, pf_matrix_t *cov);
 
 // Re-compute the cluster statistics for a sample set
+//重新计算粒子集群的概率特性
 void pf_cluster_stats(pf_t *pf, pf_sample_set_t *set);
 
 

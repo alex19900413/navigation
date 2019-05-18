@@ -69,7 +69,7 @@ pf_kdtree_t *pf_kdtree_alloc(int max_size)
   //calloc 也用于分配内存空间。调用形式： (类型说明符*)calloc(n,size) 功能：在内存动态存储区中分配n块长度为“size”字节的连续区域。函数的返回值为该区域的首地址
   self = calloc(1, sizeof(pf_kdtree_t));
   //为什么是0.5？
-  //每个位姿的值，都要先按比例除以此参数。如位姿是（1,2,Θ），那么在节点中的key值为（2,4，）。kdtree里保存的，是放大了的位姿
+  //初始值
   self->size[0] = 0.50;
   self->size[1] = 0.50;
   self->size[2] = (10 * M_PI / 180);
@@ -393,11 +393,13 @@ void pf_kdtree_cluster(pf_kdtree_t *self)
   queue = calloc(self->node_count, sizeof(queue[0]));
 
   // Put all the leaves in a queue
+  //将所有的叶子节点放到一个队列中
   for (i = 0; i < self->node_count; i++)
   {
     node = self->nodes + i;
     if (node->leaf)
     {
+      //将其聚类的label先置为-1
       node->cluster = -1;
       assert(queue_count < self->node_count);
       queue[queue_count++] = node;
@@ -419,6 +421,7 @@ void pf_kdtree_cluster(pf_kdtree_t *self)
       continue;
 
     // Assign a label to this cluster
+    //将队列中的叶子节点聚类,label从0开始
     node->cluster = cluster_count++;
 
     // Recursively label nodes in this cluster
@@ -438,6 +441,7 @@ void pf_kdtree_cluster_node(pf_kdtree_t *self, pf_kdtree_node_t *node, int depth
   int nkey[3];
   pf_kdtree_node_t *nnode;
 
+  //通过for循环将node的三个key值分别加上-1,0,1.如下是三种不同表示方法而已
   for (i = 0; i < 3 * 3 * 3; i++)
   {
     nkey[0] = node->key[0] + (i / 9) - 1;
@@ -445,6 +449,7 @@ void pf_kdtree_cluster_node(pf_kdtree_t *self, pf_kdtree_node_t *node, int depth
     nkey[2] = node->key[2] + ((i % 9) % 3) - 1;
 
     nnode = pf_kdtree_find_node(self, self->root, nkey);
+    //如果没找到,继续找下一个
     if (nnode == NULL)
       continue;
 
@@ -459,8 +464,10 @@ void pf_kdtree_cluster_node(pf_kdtree_t *self, pf_kdtree_node_t *node, int depth
     }
 
     // Label this node and recurse
+    //将找到的这个node的聚类label设置为当前Node的聚类label
     nnode->cluster = node->cluster;
 
+    //递归的查找这个node周围27个节点,能否从叶子节点队列中找到
     pf_kdtree_cluster_node(self, nnode, depth + 1);
   }
   return;

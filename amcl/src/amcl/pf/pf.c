@@ -88,6 +88,7 @@ pf_t *pf_alloc(int min_samples, int max_samples,
     }
 
     // HACK: is 3 times max_samples enough?
+    //实际上这里放2倍就可以了,根据kdtree的定义
     set->kdtree = pf_kdtree_alloc(3 * max_samples);
 
     set->cluster_count = 0;
@@ -127,6 +128,7 @@ void pf_free(pf_t *pf)
 }
 
 // Initialize the filter using a guassian
+//用高斯分布的期望和方差来初始化滤波器
 void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
 {
   int i;
@@ -134,6 +136,7 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
   pf_sample_t *sample;
   pf_pdf_gaussian_t *pdf;
   
+  //选用curret_set这个集
   set = pf->sets + pf->current_set;
   
   // Create the kd tree for adaptive sampling
@@ -141,9 +144,11 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
 
   set->sample_count = pf->max_samples;
 
+  //根据提供的期望和方差,创建高斯概率密度函数
   pdf = pf_pdf_gaussian_alloc(mean, cov);
     
   // Compute the new sample poses
+  //计算新的位姿
   for (i = 0; i < set->sample_count; i++)
   {
     sample = set->samples + i;
@@ -173,23 +178,28 @@ void pf_init_model(pf_t *pf, pf_init_model_fn_t init_fn, void *init_data)
 {
   int i;
   pf_sample_set_t *set;
-  pf_sample_t *sample;
+  pf_sample_t *sample;  //bao
 
+  //粒子滤波
   set = pf->sets + pf->current_set;
 
   // Create the kd tree for adaptive sampling
   pf_kdtree_clear(set->kdtree);
 
+  //一般设置为500个粒子.在cfg中,默认设置为5000
   set->sample_count = pf->max_samples;
 
   // Compute the new sample poses
   for (i = 0; i < set->sample_count; i++)
   {
     sample = set->samples + i;
+    //粒子的初始权重都一样
     sample->weight = 1.0 / pf->max_samples;
+    //均匀模型,在free_space的cell上,创建一个随机的位姿
     sample->pose = (*init_fn) (init_data);
 
     // Add sample to histogram
+    //插入kdtree
     pf_kdtree_insert(set->kdtree, sample->pose, sample->weight);
   }
 
