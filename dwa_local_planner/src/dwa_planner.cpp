@@ -115,6 +115,12 @@ namespace dwa_local_planner {
 
   }
 
+
+
+
+
+
+
   DWAPlanner::DWAPlanner(std::string name, base_local_planner::LocalPlannerUtil *planner_util) :
       planner_util_(planner_util),
       obstacle_costs_(planner_util->getCostmap()),
@@ -183,6 +189,13 @@ namespace dwa_local_planner {
 
     private_nh.param("cheat_factor", cheat_factor_, 1.0);
   }
+
+
+
+
+
+
+
 
   // used for visualization only, total_costs are not really total costs
   bool DWAPlanner::getCellCosts(int cx, int cy, float &path_cost, float &goal_cost, float &occ_cost, float &total_cost) {

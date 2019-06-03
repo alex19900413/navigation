@@ -77,6 +77,7 @@ public:
    * @param name The name for this costmap
    * @param tf A reference to a TransformListener
    */
+  //第一个参数,是costmap的名字,没多大用.第二个参数是tf变换,即map到base_link的变换
   Costmap2DROS(std::string name, tf::TransformListener& tf);
   ~Costmap2DROS();
 
@@ -214,6 +215,7 @@ public:
   void setUnpaddedRobotFootprintPolygon(const geometry_msgs::Polygon& footprint);
 
 protected:
+  //包工头类, 其包含了一个成员变量costmap_,这是一个地图类
   LayeredCostmap* layered_costmap_;
   std::string name_;
   tf::TransformListener& tf_;  ///< @brief Used for transforming point clouds
@@ -239,6 +241,7 @@ private:
   ros::Timer timer_;
   ros::Time last_publish_;
   ros::Duration publish_cycle;
+
   pluginlib::ClassLoader<Layer> plugin_loader_;
   tf::Stamped<tf::Pose> old_pose_;
   Costmap2DPublisher* publisher_;

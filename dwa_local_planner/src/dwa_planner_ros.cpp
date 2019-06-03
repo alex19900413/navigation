@@ -91,6 +91,7 @@ namespace dwa_local_planner {
 
   }
 
+  //第三个参数是经ros封装的地图类型
   void DWAPlannerROS::initialize(
       std::string name,
       tf::TransformListener* tf,
@@ -174,6 +175,14 @@ namespace dwa_local_planner {
 
 
 
+
+
+
+
+
+
+
+
   bool DWAPlannerROS::dwaComputeVelocityCommands(tf::Stamped<tf::Pose> &global_pose, geometry_msgs::Twist& cmd_vel) {
     // dynamic window sampling approach to get useful velocity commands
     if(! isInitialized()){
@@ -249,6 +258,11 @@ namespace dwa_local_planner {
 
 
 
+
+
+
+
+
   bool DWAPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel) {
     // dispatches to either dwa sampling control or stop and rotate control, depending on whether we have been close enough to goal
     if ( ! costmap_ros_->getRobotPose(current_pose_)) {
@@ -271,10 +285,12 @@ namespace dwa_local_planner {
     // update plan in dwa_planner even if we just stop and rotate, to allow checkTrajectory
     dp_->updatePlanAndLocalCosts(current_pose_, transformed_plan, costmap_ros_->getRobotFootprint());
 
+    //如果到达goal position ,就停止路径规划
     if (latchedStopRotateController_.isPositionReached(&planner_util_, current_pose_)) {
       //publish an empty plan because we've reached our goal position
       std::vector<geometry_msgs::PoseStamped> local_plan;
       std::vector<geometry_msgs::PoseStamped> transformed_plan;
+      //发一个空的plan
       publishGlobalPlan(transformed_plan);
       publishLocalPlan(local_plan);
       base_local_planner::LocalPlannerLimits limits = planner_util_.getCurrentLimits();
@@ -286,11 +302,12 @@ namespace dwa_local_planner {
           odom_helper_,
           current_pose_,
           boost::bind(&DWAPlanner::checkTrajectory, dp_, _1, _2, _3));
-    } else {
+    } else {  
+      //如果没有到达目标点,重新根据当前位姿计算速度. 
       bool isOk = dwaComputeVelocityCommands(current_pose_, cmd_vel);
       if (isOk) {
         publishGlobalPlan(transformed_plan);
-      } else {
+      } else {//根据当前位姿和速度, 找不到局部路径, 那就会报错, 然后原地乱转
         ROS_WARN_NAMED("dwa_local_planner", "DWA planner failed to produce path.");
         std::vector<geometry_msgs::PoseStamped> empty_plan;
         publishGlobalPlan(empty_plan);

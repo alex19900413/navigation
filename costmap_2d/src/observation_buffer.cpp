@@ -128,9 +128,11 @@ void ObservationBuffer::bufferCloud(const sensor_msgs::PointCloud2& cloud)
 
 void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
 {
+  //这是一个tf数据结构
   Stamped < tf::Vector3 > global_origin;
 
   // create a new observation on the list to be populated
+  //std::list<Observation>是一个list容器, 每一次激光扫描会插入一个observation对象
   observation_list_.push_front(Observation());
 
   // check whether the origin frame has been set explicitly or whether we should get it from the cloud
@@ -142,6 +144,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
     Stamped < tf::Vector3 > local_origin(tf::Vector3(0, 0, 0),
                             pcl_conversions::fromPCL(cloud.header).stamp, origin_frame);
     tf_.waitForTransform(global_frame_, local_origin.frame_id_, local_origin.stamp_, ros::Duration(0.5));
+    //激光雷达点云数据在地图坐标系下的坐标值
     tf_.transformPoint(global_frame_, local_origin, global_origin);
     observation_list_.front().origin_.x = global_origin.getX();
     observation_list_.front().origin_.y = global_origin.getY();
@@ -154,6 +157,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
     pcl::PointCloud < pcl::PointXYZ > global_frame_cloud;
 
     // transform the point cloud
+    //把点云数据转换到map坐标系下
     pcl_ros::transformPointCloud(global_frame_, cloud, global_frame_cloud, tf_);
     global_frame_cloud.header.stamp = cloud.header.stamp;
 
@@ -164,6 +168,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
     unsigned int point_count = 0;
 
     // copy over the points that are within our height bounds
+    //去除超出高度范围的点, 然后保存在点云数据中.因为2d激光雷达的高度低于此最小高度, 导致一直检测不到障碍物
     for (unsigned int i = 0; i < cloud_size; ++i)
     {
       if (global_frame_cloud.points[i].z <= max_obstacle_height_
@@ -191,6 +196,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
   last_updated_ = ros::Time::now();
 
   // we'll also remove any stale observations from the list
+  //清除旧的障碍物
   purgeStaleObservations();
 }
 

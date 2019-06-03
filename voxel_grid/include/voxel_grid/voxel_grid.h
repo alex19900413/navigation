@@ -277,6 +277,21 @@ public:
     bresenham3D(at, z_off, grid_off, grid_off, abs_dz, abs_dx, abs_dy, error_x, error_y, offset_dz, offset_dx, offset_dy, offset, z_mask, (unsigned int)(scale * abs_dz));
   }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 private:
   //the real work is done here... 3D bresenham implementation
   template <class ActionType, class OffA, class OffB, class OffC>

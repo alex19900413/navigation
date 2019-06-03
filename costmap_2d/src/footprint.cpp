@@ -218,6 +218,7 @@ std::vector<geometry_msgs::Point> makeFootprintFromParams(ros::NodeHandle& nh)
   std::string full_radius_param_name;
   std::vector<geometry_msgs::Point> points;
 
+  //没有footprint参数啊,可以如此设置footprint: [[x0, y0], [x1, y1], ... [xn, yn]]
   if (nh.searchParam("footprint", full_param_name))
   {
     XmlRpc::XmlRpcValue footprint_xmlrpc;

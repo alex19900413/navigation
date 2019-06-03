@@ -92,7 +92,7 @@ namespace move_base {
     vel_pub_ = nh.advertise<geometry_msgs::Twist>("cmd_vel", 1);
     current_goal_pub_ = private_nh.advertise<geometry_msgs::PoseStamped>("current_goal", 0 );
 
-    //这个节点太奢侈了,就只发布一个goal的topic
+    //订阅rivz的goal,发布一个msg为MoveBaseActionGoal的topic,,msg类型不一样
     ros::NodeHandle action_nh("move_base");
     action_goal_pub_ = action_nh.advertise<move_base_msgs::MoveBaseActionGoal>("goal", 1);
 
@@ -126,8 +126,9 @@ namespace move_base {
     //initialize the global planner
     //初始化全局规划器
     try {
+      //根据插件的名字, 创建插件指针返回
       planner_ = bgp_loader_.createInstance(global_planner);
-      //初始化函数,根据调用的插件的不同而不同的
+      //初始化函数,根据调用的插件的不同而不同的. 全局规划器不需要tf listenner
       planner_->initialize(bgp_loader_.getName(global_planner), planner_costmap_ros_);
     } catch (const pluginlib::PluginlibException& ex) {
       ROS_FATAL("Failed to create the %s planner, are you sure it is properly registered and that the containing library is built? Exception: %s", global_planner.c_str(), ex.what());
@@ -699,6 +700,7 @@ namespace move_base {
     std::vector<geometry_msgs::PoseStamped> global_plan;
 
     //运动控制频率,默认设置为20HZ.这个频率是指的goal的检查更新频率.确认其是否已完成任务
+    //turtlebot的控制频率为5hz
     ros::Rate r(controller_frequency_);
     //如果costmap关闭了.则重新打开
     if(shutdown_costmaps_){
@@ -713,7 +715,7 @@ namespace move_base {
     last_oscillation_reset_ = ros::Time::now();
     planning_retries_ = 0;
 
-    //随便初始化了一个单独的节点.来做循环判断
+    //随便初始化了一个句柄,默认命名空间
     ros::NodeHandle n;
     while(n.ok())
     {

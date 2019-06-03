@@ -84,6 +84,7 @@ void ObstacleLayer::onInitialize()
   std::stringstream ss(topics_string);
 
   std::string source;
+  //读取参数,scan参数设置再costmap_common_params.yaml文件中
   while (ss >> source)
   {
     //重映射节点.如果source是相对路径,则新节点为nh/source;如果source是绝对路径,那么新节点为source
@@ -95,7 +96,7 @@ void ObstacleLayer::onInitialize()
     bool inf_is_valid, clearing, marking;
 
     source_node.param("topic", topic, source);
-    source_node.param("sensor_frame", sensor_frame, std::string(""));
+    source_node.param("sensor_frame", sensor_frame, std::string(""));   //可不设置, 因为scan msg中会有包含的
     source_node.param("observation_persistence", observation_keep_time, 0.0);
     source_node.param("expected_update_rate", expected_update_rate, 0.0);
     source_node.param("data_type", data_type, std::string("PointCloud"));
@@ -103,7 +104,7 @@ void ObstacleLayer::onInitialize()
     source_node.param("max_obstacle_height", max_obstacle_height, 2.0);
     source_node.param("inf_is_valid", inf_is_valid, false);
     source_node.param("clearing", clearing, false);
-    source_node.param("marking", marking, true);
+    source_node.param("marking", marking, true);  //是否标记障碍物
 
     if (!sensor_frame.empty())
     {
@@ -145,10 +146,12 @@ void ObstacleLayer::onInitialize()
                                      sensor_frame, transform_tolerance)));
 
     // check if we'll add this buffer to our marking observation buffers
+    //true
     if (marking)
       marking_buffers_.push_back(observation_buffers_.back());
 
     // check if we'll also add this buffer to our clearing observation buffers
+    //true
     if (clearing)
       clearing_buffers_.push_back(observation_buffers_.back());
 
@@ -158,6 +161,7 @@ void ObstacleLayer::onInitialize()
         source.c_str(), topic.c_str(), global_frame_.c_str(), expected_update_rate, observation_keep_time);
 
     // create a callback for the topic
+    //目前只有laserscan
     if (data_type == "LaserScan")
     {
       boost::shared_ptr < message_filters::Subscriber<sensor_msgs::LaserScan>
@@ -342,6 +346,7 @@ void ObstacleLayer::pointCloud2Callback(const sensor_msgs::PointCloud2ConstPtr& 
   buffer->unlock();
 }
 
+//根据测量数据完成clear操作之后, 就开始mark操作, 对每个测量的点,标记为obstacle
 void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x,
                                           double* min_y, double* max_x, double* max_y)
 {
@@ -436,7 +441,7 @@ void ObstacleLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, i
 {
   if (!enabled_)
     return;
-
+  //默认为true, 将机器人经过的地方设置为free_space
   if (footprint_clearing_enabled_)
   {
     setConvexPolygonCost(transformed_footprint_, costmap_2d::FREE_SPACE);
@@ -478,6 +483,7 @@ bool ObstacleLayer::getMarkingObservations(std::vector<Observation>& marking_obs
   for (unsigned int i = 0; i < marking_buffers_.size(); ++i)
   {
     marking_buffers_[i]->lock();
+    //这个函数是清除旧的障碍物, 然后把observation_list_的障碍物保存到marking_observations
     marking_buffers_[i]->getObservations(marking_observations);
     current = marking_buffers_[i]->isCurrent() && current;
     marking_buffers_[i]->unlock();
@@ -511,6 +517,7 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
   pcl::PointCloud < pcl::PointXYZ > cloud = *(clearing_observation.cloud_);
 
   // get the map coordinates of the origin of the sensor
+  //
   unsigned int x0, y0;
   if (!worldToMap(ox, oy, x0, y0))
   {

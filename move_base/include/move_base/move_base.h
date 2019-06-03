@@ -204,7 +204,9 @@ namespace move_base {
 
       ros::Time last_valid_plan_, last_valid_control_, last_oscillation_reset_;
       geometry_msgs::PoseStamped oscillation_pose_;
+      //根据基类实例化bgp_loader_对象
       pluginlib::ClassLoader<nav_core::BaseGlobalPlanner> bgp_loader_;
+      //根据基类实例化blp_loader_对象
       pluginlib::ClassLoader<nav_core::BaseLocalPlanner> blp_loader_;
       pluginlib::ClassLoader<nav_core::RecoveryBehavior> recovery_loader_;
 
