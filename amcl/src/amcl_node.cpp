@@ -65,7 +65,7 @@
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <boost/foreach.hpp>
-
+#include "uwb_node/Uwb.h"
 #define NEW_UNIFORM_SAMPLING 1
 
 using namespace amcl;
@@ -108,7 +108,16 @@ angle_diff(double a, double b)
     return(d2);
 }
 
-static const std::string scan_topic_ = "scan";
+static const std::string scan_topic_ = "slscan";
+
+
+
+
+
+
+
+
+
 
 class AmclNode
 {
@@ -158,6 +167,9 @@ class AmclNode
     void laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan);
     //初始化位姿回调函数,实际上就是调用下面这个handleInitialPoseMessage
     void initialPoseReceived(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg);
+
+    void uwbPoseReceived(const uwb_node::UwbConstPtr& msg);
+
     void handleInitialPoseMessage(const geometry_msgs::PoseWithCovarianceStamped& msg);
     //调用handleMap处理地图msg
     void mapReceived(const nav_msgs::OccupancyGridConstPtr& msg);
@@ -185,6 +197,11 @@ class AmclNode
     //map
     std::string global_frame_id_;
 
+    //uwb
+    bool use_uwb_;
+    bool initPose_; //use uwb to init
+    double diff_x_, diff_y_;
+
     bool use_map_topic_;
     bool first_map_only_;
 
@@ -202,8 +219,10 @@ class AmclNode
     message_filters::Subscriber<sensor_msgs::LaserScan>* laser_scan_sub_;
     tf::MessageFilter<sensor_msgs::LaserScan>* laser_scan_filter_;
     ros::Subscriber initial_pose_sub_;
+    ros::Subscriber uwb_pose_sub_;
     std::vector< AMCLLaser* > lasers_;
     std::vector< bool > lasers_update_;
+    //保存scan的map,如果只有一个scan,那么已对应val值为1,以此类推
     std::map< std::string, int > frame_to_laser_;
 
     // Particle filter
@@ -280,6 +299,13 @@ class AmclNode
     ros::Duration laser_check_interval_;
     void checkLaserReceived(const ros::TimerEvent& event);
 };
+
+
+
+
+
+
+
 
 std::vector<std::pair<int,int> > AmclNode::free_space_indices;
 
@@ -362,6 +388,10 @@ AmclNode::AmclNode() :
         first_reconfigure_call_(true)
 {
   boost::recursive_mutex::scoped_lock l(configuration_mutex_);
+
+  private_nh_.param("use_uwb", use_uwb_, false);
+  private_nh_.param("x_diff", diff_x_, 4000.0);
+  private_nh_.param("y_diff", diff_y_, 4000.0);
 
   // Grab params off the param server
   //判断是否订阅地图信息,默认不使用
@@ -475,7 +505,7 @@ AmclNode::AmclNode() :
 
   //将这个变量初始化为1s
   cloud_pub_interval.fromSec(1.0);
-  //用来发布map到odom的tf变换
+  //用来发布map到odom的tf变换. 所以odom的位姿在amcl里被更新了?  不是, 应该是map与odom之间的tf被更新了.根据odom与map的tf,从而知道机器人的位置
   tfb_ = new tf::TransformBroadcaster();
   //tf坐标变换订阅者，订阅tf变化topic，调用transfromPoint来完成tf变换
   tf_ = new TransformListenerWrapper();
@@ -490,7 +520,8 @@ AmclNode::AmclNode() :
                                          this);
   //发布服务，没运动模型更新的情况下，也暂时更新粒子群,回调函数只是更新了一个flag,暂时没看到怎么更新的
   nomotion_update_srv_= nh_.advertiseService("request_nomotion_update", &AmclNode::nomotionUpdateCallback, this);
-  //处理地图请求,重新初始化位姿
+  
+  //处理地图请求,重新初始化位姿.根据req提供map和initpos,更新地图和初始位姿
   set_map_srv_= nh_.advertiseService("set_map", &AmclNode::setMapCallback, this);
   //这里用了message_filter的方式，订阅话题为scan_topic_，但是，并没有用得到时间同步
   //如下这三个函数，是里程计和激光雷达的融合
@@ -506,14 +537,18 @@ AmclNode::AmclNode() :
   //这里注册了回调函数                                                     
   laser_scan_filter_->registerCallback(boost::bind(&AmclNode::laserReceived,
                                                    this, _1));
+  //直接订阅uwb的数据,用作初始定位
+  uwb_pose_sub_ = nh_.subscribe("uwb", 2, &AmclNode::uwbPoseReceived, this);
   //订阅初始化位姿，这个位姿一般是rviz里手动给的                                                 
   initial_pose_sub_ = nh_.subscribe("initialpose", 2, &AmclNode::initialPoseReceived, this);
 
+  //除了发布地图服务外, 还可以订阅map话题, 用于更新全局地图.一般默认为false
+  //map_server也会发布一个map的topic,其实这里true和false的效果一样
   if(use_map_topic_) {
     map_sub_ = nh_.subscribe("map", 1, &AmclNode::mapReceived, this);
     ROS_INFO("Subscribed to map topic.");
   } else {
-    //使用给定的固定的地图
+    //使用给定的固定的地图,call static_map服务, 这个服务是map_server发布的
     requestMap();
   }
   m_force_update = false;
@@ -556,6 +591,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
 
   //we don't want to do anything on the first call
   //which corresponds to startup
+  //启动的时候,不调用此函数
   if(first_reconfigure_call_)
   {
     first_reconfigure_call_ = false;
@@ -656,6 +692,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   odom_ = new AMCLOdom();
   ROS_ASSERT(odom_);
   odom_->SetModel( odom_model_type_, alpha1_, alpha2_, alpha3_, alpha4_, alpha5_ );
+
   // Laser
   delete laser_;
   laser_ = new AMCLLaser(max_beams_, map_);
@@ -795,6 +832,21 @@ void AmclNode::runFromBag(const std::string &in_bag_fn)
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 void AmclNode::savePoseToServer()
 {
   //the latest map pose to store.  We'll take the covariance from
@@ -901,19 +953,6 @@ AmclNode::mapReceived(const nav_msgs::OccupancyGridConstPtr& msg)
 
   first_map_received_ = true;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 void
 AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
@@ -1109,6 +1148,8 @@ AmclNode::getOdomPose(tf::Stamped<tf::Pose>& odom_pose,
   x = odom_pose.getOrigin().x();
   y = odom_pose.getOrigin().y();
   double pitch,roll;
+  //tf::Transform,getBasis得到旋转矩阵
+  //这里得到了yaw角
   odom_pose.getBasis().getEulerYPR(yaw, pitch, roll);
 
   return true;
@@ -1225,12 +1266,14 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   if( map_ == NULL ) {
     return;
   }
+
   boost::recursive_mutex::scoped_lock lr(configuration_mutex_);
+  //保存laser_scan在frame_to_laser_中的key对应的val
   int laser_index = -1;
 
   // Do we have the base->base_laser Tx yet?
-  //先是从frame_to_laser_这个map里中找寻scan，如果没找到就新建一个，但是用map来储存
-  //如果在列表中,则加入到lasers队列中,并打印其所在位置
+  //先是从frame_to_laser_这个map容器里中找寻scan，如果没在容器中找到该scan,那么就新建一个,添加到map容器中
+  //如果在列表中,则得到其laser_index值
   if(frame_to_laser_.find(laser_scan->header.frame_id) == frame_to_laser_.end())
   {
     ROS_DEBUG("Setting up laser %d (frame_id=%s)\n", (int)frame_to_laser_.size(), laser_scan->header.frame_id.c_str());
@@ -1239,14 +1282,15 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     lasers_update_.push_back(true);
     laser_index = frame_to_laser_.size();
 
-    //定义一个laser位姿(原点),将其转换到base_link,从而得到传感器相对base_link的位置关系
+    //根据laser_frame定义一个Stamped位姿(初始化为0),将其转换到base_link,从而得到传感器相对base_link的位置关系laser_pose
     tf::Stamped<tf::Pose> ident (tf::Transform(tf::createIdentityQuaternion(),
                                              tf::Vector3(0,0,0)),
                                  ros::Time(), laser_scan->header.frame_id);
+    //laser_frame到base_link的位姿变换
     tf::Stamped<tf::Pose> laser_pose;
     try
     {
-      //
+      //transform a Stamped pose into target_fram(first param),stamped_inf(sec param),stamped_out(third param)
       this->tf_->transformPose(base_frame_id_, ident, laser_pose);
     }
     catch(tf::TransformException& e)
@@ -1262,8 +1306,10 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     laser_pose_v.v[0] = laser_pose.getOrigin().x();
     laser_pose_v.v[1] = laser_pose.getOrigin().y();
     // laser mounting angle gets computed later -> set to 0 here!
+    //所以啊,激光雷达还是有必要安装比较精准才行
     laser_pose_v.v[2] = 0;
     lasers_[laser_index]->SetLaserPose(laser_pose_v);
+    //这里说明了,是laser相对robot的位姿
     ROS_DEBUG("Received laser's pose wrt robot: %.3f %.3f %.3f",
               laser_pose_v.v[0],
               laser_pose_v.v[1],
@@ -1276,7 +1322,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   }
 
   // Where was the robot when this scan was taken?
-  //这里是获取此时激光感知时刻的odom到base_link的变换,以及base_link到odom的位置
+  //这里是获取此时base_link到odom的位姿,保存再latest_odom_pose_中,同时保存再pf_vector_t的pose中
   pf_vector_t pose;
   if(!getOdomPose(latest_odom_pose_, pose.v[0], pose.v[1], pose.v[2],
                   laser_scan->header.stamp, base_frame_id_))
@@ -1535,7 +1581,8 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       pose_pub_.publish(p);
       last_published_pose = p;
 
-      ROS_DEBUG("New pose: %6.3f %6.3f %6.3f",
+      //计算出来的最可能的位姿
+      ROS_INFO("New pose: %6.3f %6.3f %6.3f",
                hyps[max_weight_hyp].pf_pose_mean.v[0],
                hyps[max_weight_hyp].pf_pose_mean.v[1],
                hyps[max_weight_hyp].pf_pose_mean.v[2]);
@@ -1561,6 +1608,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
         return;
       }
 
+      //这是odom到map的位姿变换
       latest_tf_ = tf::Transform(tf::Quaternion(odom_to_map.getRotation()),
                                  tf::Point(odom_to_map.getOrigin()));
       latest_tf_valid_ = true;
@@ -1591,6 +1639,13 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       // everybody happy.
       ros::Time transform_expiration = (laser_scan->header.stamp +
                                         transform_tolerance_);
+      /**
+       * @brief:StampedTransform,用于发布tf
+       * @param1,input(tf::transform)
+       * @param2,const timestamp
+       * @param3,frame_id
+       * @param4,child_frame_id
+      */
       tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(),
                                           transform_expiration,
                                           global_frame_id_, odom_frame_id_);
@@ -1647,6 +1702,32 @@ AmclNode::initialPoseReceived(const geometry_msgs::PoseWithCovarianceStampedCons
   handleInitialPoseMessage(*msg);
 }
 
+
+void AmclNode::uwbPoseReceived(const uwb_node::UwbConstPtr& msg)
+{
+  geometry_msgs::PoseWithCovarianceStamped Pos;
+  Pos.header.frame_id = "map";
+  Pos.pose.pose.position.x = msg->position.x - diff_x_;
+  Pos.pose.pose.position.y = msg->position.x - diff_y_;
+  ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
+        msg->position.x,
+        msg->position.y,
+        Pos.pose.pose.position.x,
+        Pos.pose.pose.position.y);
+
+  //得规定一个yaw角, 到底是从imu得到呢, 还是固定一个方向?
+  //啥都不做,Pos.pose.pose.orientation默认为0
+  if(!initPose_)
+  {
+    handleInitialPoseMessage(Pos);
+    initPose_ = true;
+  }
+
+  //接下来要把坐标x,y给到amcl的tf变换应用起来
+
+}
+
+
 void
 AmclNode::handleInitialPoseMessage(const geometry_msgs::PoseWithCovarianceStamped& msg)
 {
@@ -1673,9 +1754,12 @@ AmclNode::handleInitialPoseMessage(const geometry_msgs::PoseWithCovarianceStampe
   {
     ros::Time now = ros::Time::now();
     // wait a little for the latest tf to become available
+    //阻塞(或者时间段)接收一个tf变换,odom_frame_id_纯粹是用来获取时间变化的.查看收到的msg时间,到现在,base_link是否有变化
     tf_->waitForTransform(base_frame_id_, msg.header.stamp,
                          base_frame_id_, now,
                          odom_frame_id_, ros::Duration(0.5));
+    //根据tf变换求得其base_link移动的位姿
+    //不知道是不是可以这样子理解:waitForTransform是base_link相对odom的变换关系. 如果odom没有变化, 那么上面得到的tf变换关系应该是0,下面得到的tx_odom也是0
     tf_->lookupTransform(base_frame_id_, msg.header.stamp,
                          base_frame_id_, now,
                          odom_frame_id_, tx_odom);
