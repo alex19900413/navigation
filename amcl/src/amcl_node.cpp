@@ -108,7 +108,7 @@ angle_diff(double a, double b)
     return(d2);
 }
 
-static const std::string scan_topic_ = "slscan";
+static const std::string scan_topic_ = "scan";
 
 
 
@@ -390,6 +390,7 @@ AmclNode::AmclNode() :
   boost::recursive_mutex::scoped_lock l(configuration_mutex_);
 
   private_nh_.param("use_uwb", use_uwb_, false);
+  private_nh_.param("initPoseWithUWB", initPose_, false);
   private_nh_.param("x_diff", diff_x_, 4000.0);
   private_nh_.param("y_diff", diff_y_, 4000.0);
 
@@ -1582,7 +1583,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       last_published_pose = p;
 
       //计算出来的最可能的位姿
-      ROS_INFO("New pose: %6.3f %6.3f %6.3f",
+      ROS_INFO("New_pose_laserScan: %6.3f %6.3f %6.3f",
                hyps[max_weight_hyp].pf_pose_mean.v[0],
                hyps[max_weight_hyp].pf_pose_mean.v[1],
                hyps[max_weight_hyp].pf_pose_mean.v[2]);
@@ -1706,14 +1707,17 @@ AmclNode::initialPoseReceived(const geometry_msgs::PoseWithCovarianceStampedCons
 void AmclNode::uwbPoseReceived(const uwb_node::UwbConstPtr& msg)
 {
   geometry_msgs::PoseWithCovarianceStamped Pos;
-  Pos.header.frame_id = "map";
-  Pos.pose.pose.position.x = msg->position.x - diff_x_;
-  Pos.pose.pose.position.y = msg->position.x - diff_y_;
-  ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
-        msg->position.x,
-        msg->position.y,
-        Pos.pose.pose.position.x,
-        Pos.pose.pose.position.y);
+  Pos.header.frame_id = global_frame_id_;
+  Pos.header.stamp = msg->header.stamp;
+  Pos.pose.pose.position.x = ( diff_x_ - msg->position.y) / 100.0;
+  Pos.pose.pose.position.y = ( diff_y_ - msg->position.x) / 100.0;
+  Pos.pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
+
+  // ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
+  //       msg->position.x,
+  //       msg->position.y,
+  //       Pos.pose.pose.position.x,
+  //       Pos.pose.pose.position.y);
 
   //得规定一个yaw角, 到底是从imu得到呢, 还是固定一个方向?
   //啥都不做,Pos.pose.pose.orientation默认为0
