@@ -49,6 +49,7 @@ typedef struct
   int occ_state;
 
   // Distance to the nearest occupied cell
+  //这玩意就是A*中的H值吗
   double occ_dist;
 
   // Wifi levels

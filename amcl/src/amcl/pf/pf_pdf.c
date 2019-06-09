@@ -143,6 +143,7 @@ double pf_ran_gaussian(double sigma)
     w = x1*x1 + x2*x2;
   } while(w > 1.0 || w==0.0);
 
+  //这里的log是自然对数ln
   return(sigma * x2 * sqrt(-2.0*log(w)/w));
 }
 

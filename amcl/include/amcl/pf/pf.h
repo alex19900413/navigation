@@ -42,6 +42,8 @@ struct _pf_sample_set_t;
 
 // Function prototype for the initialization model; generates a sample pose from
 // an appropriate distribution.
+//函数指针别名. 指向形参为指针, 返回类型为pf_vector_t的函数.方便粒子滤波模块的可读性
+//在amcl_node.cpp中,用起强制指针类型转换,其实没多大用.也是增强可读性而已
 typedef pf_vector_t (*pf_init_model_fn_t) (void *init_data);
 
 // Function prototype for the action model; generates a sample pose from
@@ -90,7 +92,7 @@ typedef struct
 
 
 // Information for a set of samples
-//粒子集合,数量,kdtree,收敛flag,均值和协方差,clusters
+//粒子集合,包含粒子数量,粒子指针,kdtree指针,集群参数,收敛flag,均值和协方差
 typedef struct _pf_sample_set_t
 {
   // The samples
@@ -101,6 +103,7 @@ typedef struct _pf_sample_set_t
   pf_kdtree_t *kdtree;
 
   // Clusters
+  //cluster_max_count默认为samples_max_count,即最差情况下,单个粒子就是一个集群
   int cluster_count, cluster_max_count;
   pf_cluster_t *clusters;
 
@@ -139,7 +142,7 @@ typedef struct _pf_t
   void *random_pose_data;
 
   double dist_threshold; //distance threshold in each axis over which the pf is considered to not be converged
-  int converged; 
+  int converged;  //sample_set也有一个此标志位
 } pf_t;
 
 
