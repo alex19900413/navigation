@@ -614,10 +614,11 @@ namespace move_base {
       ROS_DEBUG_NAMED("move_base_plan_thread","Planning...");
 
       //run planner
+      //全局路径是一些列的位姿点
       planner_plan_->clear();
-      //实际上是调用global_planner的makePlan函数
+      //实际上是调用global_planner的makePlan函数,一般global默认是Navfn/NavfnROS
       bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);
-
+      //两种情况，1，路径规划成功，state设置为CONTROLLING. 2，上一次路径规划仍在执行中，state=PLANNING. state还有一种状态，就是clearing。
       if(gotPlan){
         ROS_DEBUG_NAMED("move_base_plan_thread","Got Plan with %zu points!", planner_plan_->size());
         //pointer swap the plans under mutex (the controller will pull from latest_plan_)
@@ -635,6 +636,7 @@ namespace move_base {
         //make sure we only start the controller if we still haven't reached the goal
         if(runPlanner_)
           state_ = CONTROLLING;
+        //如果小于等于0，那么planner线程就不会按频率去规划，而是收到plan计划就执行，不等待
         if(planner_frequency_ <= 0)
           runPlanner_ = false;
         lock.unlock();
@@ -651,13 +653,14 @@ namespace move_base {
         lock.lock();
         planning_retries_++;
         //max_planning_retries_的默认值为-1,所以总是true,跟attempet_end没关系.如果设置让其多planner几次,可以在这里修改
+        //如果planning超时了，就进入recovery
         if(runPlanner_ &&
            (ros::Time::now() > attempt_end || planning_retries_ > uint32_t(max_planning_retries_))){
           //we'll move into our obstacle clearing mode
           state_ = CLEARING;
           runPlanner_ = false;  // proper solution for issue #523
           publishZeroVelocity();
-          recovery_trigger_ = PLANNING_R;
+          recovery_trigger_ = PLANNING_R; //执行recovery操作，以便能够找到新的路径
         }
 
         lock.unlock();
@@ -667,7 +670,7 @@ namespace move_base {
       lock.lock();
 
       //setup sleep interface if needed
-      //不使用定时规划
+      //不使用定时规划.给个频率，就会按这个频率去更新新的路径。这样子很烦诶
       if(planner_frequency_ > 0){
         ros::Duration sleep_time = (start_time + ros::Duration(1.0/planner_frequency_)) - ros::Time::now();
         if (sleep_time > ros::Duration(0.0)){
@@ -991,6 +994,7 @@ namespace move_base {
         break;
 
       //we'll try to clear out space with any user-provided recovery behaviors
+      //recovery失败后，则会报错
       case CLEARING:
         ROS_DEBUG_NAMED("move_base","In clearing/recovery state");
         //we'll invoke whatever recovery behavior we're currently on if they're enabled
