@@ -71,7 +71,9 @@ namespace move_base {
 
   enum RecoveryTrigger
   {
+    //全局规划失败
     PLANNING_R,
+    //局部规划失败
     CONTROLLING_R,
     OSCILLATION_R
   };
@@ -199,6 +201,7 @@ namespace move_base {
       bool shutdown_costmaps_, clearing_rotation_allowed_, recovery_behavior_enabled_;
       double oscillation_timeout_, oscillation_distance_;
 
+      //planning，正在规划路径；controlling, 正在执行goal；clearing, 正在执行recovry
       MoveBaseState state_;
       RecoveryTrigger recovery_trigger_;
 
@@ -215,7 +218,8 @@ namespace move_base {
       std::vector<geometry_msgs::PoseStamped>* latest_plan_;
       std::vector<geometry_msgs::PoseStamped>* controller_plan_;
 
-      //set up the planner's thread
+      //set up the planner's Threadhread
+      //当设置为true时，notify planThread执行规划线程
       bool runPlanner_;
       boost::recursive_mutex planner_mutex_;
       boost::condition_variable_any planner_cond_;

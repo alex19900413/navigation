@@ -58,6 +58,7 @@ void ClearCostmapRecovery::initialize(std::string name, tf::TransformListener* t
     //get some parameters from the parameter server
     ros::NodeHandle private_nh("~/" + name_);
 
+    //要清除的障碍物直径
     private_nh.param("reset_distance", reset_distance_, 3.0);
     
     std::vector<std::string> clearable_layers_default, clearable_layers;
@@ -112,7 +113,7 @@ void ClearCostmapRecovery::clear(costmap_2d::Costmap2DROS* costmap){
     if( slash != std::string::npos ){
         name = name.substr(slash+1);
     }
-
+    //如果找到对应的要clearing的plugin地图的话，就clearMap
     if(clearable_layers_.count(name)!=0){
       boost::shared_ptr<costmap_2d::CostmapLayer> costmap;
       costmap = boost::static_pointer_cast<costmap_2d::CostmapLayer>(plugin);
@@ -127,7 +128,7 @@ void ClearCostmapRecovery::clearMap(boost::shared_ptr<costmap_2d::CostmapLayer> 
   boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(costmap->getMutex()));
  
   double start_point_x = pose_x - reset_distance_ / 2;
-  double start_point_y = pose_y - reset_distance_ / 2;
+  double start_point_y = pose_y - reset_distance_ / reset_distance_2;
   double end_point_x = start_point_x + reset_distance_;
   double end_point_y = start_point_y + reset_distance_;
 
