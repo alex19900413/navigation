@@ -270,6 +270,7 @@ namespace dwa_local_planner {
       return false;
     }
     std::vector<geometry_msgs::PoseStamped> transformed_plan;
+    //根据当前位姿,得到global plan在local坐标系下的transformed_plan,用于局部规划控制
     if ( ! planner_util_.getLocalPlan(current_pose_, transformed_plan)) {
       ROS_ERROR("Could not get local plan");
       return false;

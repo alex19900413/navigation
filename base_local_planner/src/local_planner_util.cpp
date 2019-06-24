@@ -116,6 +116,7 @@ bool LocalPlannerUtil::getLocalPlan(tf::Stamped<tf::Pose>& global_pose, std::vec
   }
 
   //now we'll prune the plan based on the position of the robot
+  //默认为false
   if(limits_.prune_plan) {
     base_local_planner::prunePlan(global_pose, transformed_plan, global_plan_);
   }

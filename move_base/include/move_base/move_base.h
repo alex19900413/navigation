@@ -180,7 +180,7 @@ namespace move_base {
       MoveBaseActionServer* as_;
 
       boost::shared_ptr<nav_core::BaseLocalPlanner> tc_;
-      //为啥会有两个costmap2dRos指针呢?
+      //一个用于全局规划,一个用于局部规划
       costmap_2d::Costmap2DROS* planner_costmap_ros_, *controller_costmap_ros_;
 
       boost::shared_ptr<nav_core::BaseGlobalPlanner> planner_;
