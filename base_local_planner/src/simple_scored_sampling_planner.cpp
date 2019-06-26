@@ -84,6 +84,7 @@ namespace base_local_planner {
     double loop_traj_cost, best_traj_cost = -1;
     bool gen_success;
     int count, count_valid;
+    //oscillation和twirling的prepare函数定义在头文件中
     for (std::vector<TrajectoryCostFunction*>::iterator loop_critic = critics_.begin(); loop_critic != critics_.end(); ++loop_critic) {
       TrajectoryCostFunction* loop_critic_p = *loop_critic;
       if (loop_critic_p->prepare() == false) {
@@ -91,23 +92,28 @@ namespace base_local_planner {
         return false;
       }
     }
-
+    //这个gen_list容器里，只有一个trajectorySampleGenerator
     for (std::vector<TrajectorySampleGenerator*>::iterator loop_gen = gen_list_.begin(); loop_gen != gen_list_.end(); ++loop_gen) {
       count = 0;
       count_valid = 0;
       TrajectorySampleGenerator* gen_ = *loop_gen;
+      //遍历所有轨迹
       while (gen_->hasMoreTrajectories()) {
+        //生成一条新的轨迹loop_traj
         gen_success = gen_->nextTrajectory(loop_traj);
         if (gen_success == false) {
           // TODO use this for debugging
           continue;
         }
+        //使用costFunction给轨迹打分
         loop_traj_cost = scoreTrajectory(loop_traj, best_traj_cost);
+        //把计算过的轨迹，放到一个集合中
         if (all_explored != NULL) {
           loop_traj.cost_ = loop_traj_cost;
           all_explored->push_back(loop_traj);
         }
 
+        //如果新的路径是最佳路径，则更新
         if (loop_traj_cost >= 0) {
           count_valid++;
           if (best_traj_cost < 0 || loop_traj_cost < best_traj_cost) {
@@ -120,6 +126,7 @@ namespace base_local_planner {
           break;
         }        
       }
+      //如果最佳路径合理，则保存到结果中traj
       if (best_traj_cost >= 0) {
         traj.xv_ = best_traj.xv_;
         traj.yv_ = best_traj.yv_;
@@ -133,6 +140,7 @@ namespace base_local_planner {
         }
       }
       ROS_DEBUG("Evaluated %d trajectories, found %d valid", count, count_valid);
+      //中断当前for循环？？其实这个for循环的对象也就只有一个
       if (best_traj_cost >= 0) {
         // do not try fallback generators
         break;

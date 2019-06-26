@@ -111,6 +111,7 @@ namespace dwa_local_planner {
       planner_util_.initialize(tf, costmap, costmap_ros_->getGlobalFrameID());
 
       //create the actual planner that we'll use.. it'll configure itself from the parameter server
+      //move_base中创建局部规划器后，其调用初始化函数在这里实例化dwa对象,最主要的是把几种计算cost的方法放到critics中，细看其详细细节
       dp_ = boost::shared_ptr<DWAPlanner>(new DWAPlanner(name, &planner_util_));
 
       if( private_nh.getParam( "odom_topic", odom_topic_ ))
@@ -190,6 +191,7 @@ namespace dwa_local_planner {
       return false;
     }
 
+    //明明是个位姿，不知道为啥命名为vel
     tf::Stamped<tf::Pose> robot_vel;
     odom_helper_.getRobotVel(robot_vel);
 
@@ -204,6 +206,7 @@ namespace dwa_local_planner {
     drive_cmds.frame_id_ = costmap_ros_->getBaseFrameID();
     
     // call with updated footprint
+    //寻找最优路径path，后面会保存到local_plan中发布。计算出要下发的速度，保存在driver_cmds中，然后再赋值给cmd_vel
     base_local_planner::Trajectory path = dp_->findBestPath(global_pose, robot_vel, drive_cmds);
     //ROS_ERROR("Best: %.2f, %.2f, %.2f, %.2f", path.xv_, path.yv_, path.thetav_, path.cost_);
 
@@ -284,14 +287,15 @@ namespace dwa_local_planner {
     ROS_DEBUG_NAMED("dwa_local_planner", "Received a transformed plan with %zu points.", transformed_plan.size());
 
     // update plan in dwa_planner even if we just stop and rotate, to allow checkTrajectory
+    //感觉是初始化costFunction的意思
     dp_->updatePlanAndLocalCosts(current_pose_, transformed_plan, costmap_ros_->getRobotFootprint());
 
-    //如果到达goal position ,就停止路径规划
+    //如果到达goal position ,就停止路径规划，cmd_vel的速度为0
     if (latchedStopRotateController_.isPositionReached(&planner_util_, current_pose_)) {
       //publish an empty plan because we've reached our goal position
       std::vector<geometry_msgs::PoseStamped> local_plan;
       std::vector<geometry_msgs::PoseStamped> transformed_plan;
-      //发一个空的plan
+      //发一个空的global_plan,注意是dwa名下的。也就是global_plan在local_map下的一部分路径
       publishGlobalPlan(transformed_plan);
       publishLocalPlan(local_plan);
       base_local_planner::LocalPlannerLimits limits = planner_util_.getCurrentLimits();
@@ -304,7 +308,7 @@ namespace dwa_local_planner {
           current_pose_,
           boost::bind(&DWAPlanner::checkTrajectory, dp_, _1, _2, _3));
     } else {  
-      //如果没有到达目标点,重新根据当前位姿计算速度. 
+      //如果没有到达目标点,调用dwaComputeVelocityCommands根据当前位姿计算速度.保存到cmd_vel 。并发布局部路径local_plan
       bool isOk = dwaComputeVelocityCommands(current_pose_, cmd_vel);
       if (isOk) {
         publishGlobalPlan(transformed_plan);

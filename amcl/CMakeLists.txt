@@ -11,7 +11,6 @@ find_package(catkin REQUIRED
             dynamic_reconfigure
             nav_msgs
             std_srvs
-            uwb_node
         )
 
 find_package(Boost REQUIRED)

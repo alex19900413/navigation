@@ -142,6 +142,7 @@ protected:
 
   unsigned int next_sample_index_;
   // to store sample params of each sample between init and generation
+  //采样的速度的集合，每个速度是一个Vector3f的类型，其实就是3x1的矩阵
   std::vector<Eigen::Vector3f> sample_params_;
   base_local_planner::LocalPlannerLimits* limits_;
   Eigen::Vector3f pos_;

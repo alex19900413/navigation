@@ -617,6 +617,8 @@ namespace move_base {
       //run planner
       //全局路径是一些列的位姿点
       planner_plan_->clear();
+      //clear map
+      recovery_behaviors_[0]->runBehavior();
       //实际上是调用global_planner的makePlan函数,一般global默认是Navfn/NavfnROS
       bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);
       //两种情况，1，路径规划成功，state设置为CONTROLLING. 2，上一次路径规划仍在执行中，state=PLANNING. state还有一种状态，就是clearing。
@@ -967,7 +969,7 @@ namespace move_base {
         
         {
          boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(controller_costmap_ros_->getCostmap()->getMutex()));
-        //局部规划，计算出执行速度
+        //局部规划，计算出执行速度并下发给底层驱动
         if(tc_->computeVelocityCommands(cmd_vel)){
           ROS_DEBUG_NAMED( "move_base", "Got a valid command from the local planner: %.3lf, %.3lf, %.3lf",
                            cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z );
@@ -1072,7 +1074,7 @@ namespace move_base {
   //加载自己的recovery策略
   bool MoveBase::loadRecoveryBehaviors(ros::NodeHandle node){
     XmlRpc::XmlRpcValue behavior_list;
-    if(node.getParam("recovery_behaviors",behavior_list behavior_list)){
+    if(node.getParam("recovery_behaviors",behavior_list)){
       if(behavior_list.getType() == XmlRpc::XmlRpcValue::TypeArray){
         for(int i = 0; i < behavior_list.size(); ++i){
           if(behavior_list[i].getType() == XmlRpc::XmlRpcValue::TypeStruct){

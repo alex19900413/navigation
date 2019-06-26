@@ -53,6 +53,7 @@ void SimpleTrajectoryGenerator::initialise(
     bool discretize_by_time) {
   initialise(pos, vel, goal, limits, vsamples, discretize_by_time);
   // add static samples if any
+  //这个操作有意思，把其他的vector直接插入进来
   sample_params_.insert(sample_params_.end(), additional_samples.begin(), additional_samples.end());
 }
 
@@ -75,6 +76,7 @@ void SimpleTrajectoryGenerator::initialise(
   vel_ = vel;
   limits_ = limits;
   next_sample_index_ = 0;
+  //先清空
   sample_params_.clear();
 
   double min_vel_x = limits->min_vel_x;
@@ -88,9 +90,11 @@ void SimpleTrajectoryGenerator::initialise(
     Eigen::Vector3f max_vel = Eigen::Vector3f::Zero();
     Eigen::Vector3f min_vel = Eigen::Vector3f::Zero();
 
+    //在dsrv里设置为true。这一步确定最大最小速度
     if ( ! use_dwa_) {
       // there is no point in overshooting the goal, and it also may break the
       // robot behavior, so we limit the velocities to those that do not overshoot in sim_time
+      //goal是路径最近的一个点（我觉得这个goal可以优化一下，或者当进入recovery的时候，多选择几个goal做局部规划）
       double dist = hypot(goal[0] - pos[0], goal[1] - pos[1]);
       max_vel_x = std::max(std::min(max_vel_x, dist / sim_time_), min_vel_x);
       max_vel_y = std::max(std::min(max_vel_y, dist / sim_time_), min_vel_y);
@@ -114,6 +118,7 @@ void SimpleTrajectoryGenerator::initialise(
       min_vel[2] = std::max(min_vel_th, vel[2] - acc_lim[2] * sim_period_);
     }
 
+    //根据采样率，以及最大最小速度，完成速度采样。
     Eigen::Vector3f vel_samp = Eigen::Vector3f::Zero();
     VelocityIterator x_it(min_vel[0], max_vel[0], vsamples[0]);
     VelocityIterator y_it(min_vel[1], max_vel[1], vsamples[1]);
@@ -200,12 +205,14 @@ bool SimpleTrajectoryGenerator::generateTrajectory(
   }
 
   int num_steps;
+  //sim_granularity_的默认值为0.025
   if (discretize_by_time_) {
     num_steps = ceil(sim_time_ / sim_granularity_);
   } else {
     //compute the number of steps we must take along this trajectory to be "safe"
     double sim_time_distance = vmag * sim_time_; // the distance the robot would travel in sim_time if it did not change velocity
     double sim_time_angle = fabs(sample_target_vel[2]) * sim_time_; // the angle the robot would rotate in sim_time
+    //angular_sim_granularity的默认值为0.1
     num_steps =
         ceil(std::max(sim_time_distance / sim_granularity_,
             sim_time_angle    / angular_sim_granularity_));

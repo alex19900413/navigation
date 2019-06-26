@@ -138,6 +138,7 @@ namespace dwa_local_planner {
     //just do an upward search for the frequency at which its being run. This
     //also allows the frequency to be overwritten locally.
     std::string controller_frequency_param_name;
+    //所以这sim_period可以通过controller_frequency来修改
     if(!private_nh.searchParam("controller_frequency", controller_frequency_param_name)) {
       sim_period_ = 0.05;
     } else {
@@ -165,6 +166,7 @@ namespace dwa_local_planner {
     std::string frame_id;
     private_nh.param("global_frame_id", frame_id, std::string("odom"));
 
+    //保存轨迹的点云数据，每个点是MapGridCostPoint类型
     traj_cloud_ = new pcl::PointCloud<base_local_planner::MapGridCostPoint>;
     traj_cloud_->header.frame_id = frame_id;
     traj_cloud_pub_.advertise(private_nh, "trajectory_cloud", 1);
@@ -183,8 +185,10 @@ namespace dwa_local_planner {
 
     // trajectory generators
     std::vector<base_local_planner::TrajectorySampleGenerator*> generator_list;
+    //generator_保存了生成的速度采样的对象。搞不懂，这里就一个对象，为啥要用vector来保存？
     generator_list.push_back(&generator_);
 
+    //把速度采样容器（真搞不清楚为啥要用容器），传递给SimpleScoredSamplingPlanner类型的scored_sampling_planner_，其会执行打分操作
     scored_sampling_planner_ = base_local_planner::SimpleScoredSamplingPlanner(generator_list, critics);
 
     private_nh.param("cheat_factor", cheat_factor_, 1.0);
@@ -193,7 +197,7 @@ namespace dwa_local_planner {
 
 
 
-
+ 
 
 
 
@@ -240,6 +244,7 @@ namespace dwa_local_planner {
         goal,
         &limits,
         vsamples_);
+    //根据速度生成轨迹，保存到轨迹集合traj中，用于接下来的打分操作
     generator_.generateTrajectory(pos, vel, vel_samples, traj);
     double cost = scored_sampling_planner_.scoreTrajectory(traj, -1);
     //if the trajectory is a legal one... the check passes
@@ -252,11 +257,14 @@ namespace dwa_local_planner {
     return false;
   }
 
-
+  //第一个参数是机器人在map坐标系下的位姿
+  //第二个参数是全局路径
+  //第三个参数是机器人的local坐标系下的位姿
   void DWAPlanner::updatePlanAndLocalCosts(
       tf::Stamped<tf::Pose> global_pose,
       const std::vector<geometry_msgs::PoseStamped>& new_plan,
       const std::vector<geometry_msgs::Point>& footprint_spec) {
+    //将global_plan更新为自己成员的plan保存
     global_plan_.resize(new_plan.size());
     for (unsigned int i = 0; i < new_plan.size(); ++i) {
       global_plan_[i] = new_plan[i];
@@ -271,8 +279,10 @@ namespace dwa_local_planner {
     goal_costs_.setTargetPoses(global_plan_);
 
     // alignment costs
+    // 取全局路径的最近的一个goal作为临时目标点
     geometry_msgs::PoseStamped goal_pose = global_plan_.back();
 
+    //计算当前位置到最近一个目标点的距离
     Eigen::Vector3f pos(global_pose.getOrigin().getX(), global_pose.getOrigin().getY(), tf::getYaw(global_pose.getRotation()));
     double sq_dist =
         (pos[0] - goal_pose.pose.position.x) * (pos[0] - goal_pose.pose.position.x) +
@@ -283,7 +293,10 @@ namespace dwa_local_planner {
     // path for the robot center. Choosing the final position after
     // turning towards goal orientation causes instability when the
     // robot needs to make a 180 degree turn at the end
+    //大意是希望目标点在机器人的正前方，而不是指向机器人现在的方向。因为后者到达目标点后还需要旋转180°
+    //front_global_plan的意思是，将原来的global_plan的最后一个目标点(也是离机器人最近的一个目标点)，沿路径方向往前再移动一段距离（默认设定值为0.325）
     std::vector<geometry_msgs::PoseStamped> front_global_plan = global_plan_;
+    //计算当前位姿到目标点的角度，然后更新front_global_plan最后一个元素的值
     double angle_to_goal = atan2(goal_pose.pose.position.y - pos[1], goal_pose.pose.position.x - pos[0]);
     front_global_plan.back().pose.position.x = front_global_plan.back().pose.position.x +
       forward_point_distance_ * cos(angle_to_goal);
@@ -293,6 +306,7 @@ namespace dwa_local_planner {
     goal_front_costs_.setTargetPoses(front_global_plan);
     
     // keeping the nose on the path
+    //修改alignment_cost（map_grid_costFunction），是的机器人朝向指向目标点
     if (sq_dist > forward_point_distance_ * forward_point_distance_ * cheat_factor_) {
       double resolution = planner_util_->getCostmap()->getResolution();
       alignment_costs_.setScale(resolution * pdist_scale_ * 0.5);
@@ -307,6 +321,7 @@ namespace dwa_local_planner {
 
   /*
    * given the current state of the robot, find a good trajectory
+   * 最佳路径保存为result_traj_
    */
   base_local_planner::Trajectory DWAPlanner::findBestPath(
       tf::Stamped<tf::Pose> global_pose,
@@ -323,15 +338,18 @@ namespace dwa_local_planner {
     base_local_planner::LocalPlannerLimits limits = planner_util_->getCurrentLimits();
 
     // prepare cost functions and generators for this run
+    //负责速度采样，采样的vsamples被保存在了generator_对象中。可以被TrajectorySampleGenerator基类指向
+    //在simple_scored_sampling_planner里执行打分，会调用这里生成的速度采样
     generator_.initialise(pos,
         vel,
         goal,
         &limits,
         vsamples_);
-
+    //这个分数怎么来的？总共7个costFunction，默认初始为-1，累积之和就是-7
     result_traj_.cost_ = -7;
     // find best trajectory by sampling and scoring the samples
     std::vector<base_local_planner::Trajectory> all_explored;
+    //result_traj是最优路径，all_explored是保存被计算的路径.在这里面就会用到上面的速度采样
     scored_sampling_planner_.findBestTrajectory(result_traj_, &all_explored);
 
     if(publish_traj_pc_)
