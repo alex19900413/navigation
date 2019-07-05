@@ -86,6 +86,8 @@ namespace estimation
     double freq;
     nh_private.param("freq", freq, 30.0);
 
+    //这波操作难道是从launch文件读取参数的必备步骤？
+    //tf_prefix是tf老版本的概念，用/作为框架名称的前缀。是不是如果launch文件中给定/odom和odom一样的。/odom则会清除掉前缀，odom则不操作
     tf_prefix_ = tf::getPrefixParam(nh_private);
     output_frame_ = tf::resolve(tf_prefix_, output_frame_);
     base_footprint_frame_ = tf::resolve(tf_prefix_, base_footprint_frame_);
@@ -95,9 +97,11 @@ namespace estimation
 
     // set output frame and base frame names in OdomEstimation filter
     // so that user-defined tf frames are respected
+    //在launch文件中修改对应的tf frame
     my_filter_.setOutputFrame(output_frame_);
     my_filter_.setBaseFootprintFrame(base_footprint_frame_);
 
+    //开启一个定时器，执行循环滤波操作
     timer_ = nh_private.createTimer(ros::Duration(1.0/max(freq,1.0)), &OdomEstimationNode::spin, this);
 
     // advertise our estimation
@@ -106,6 +110,7 @@ namespace estimation
     // initialize
     filter_stamp_ = Time::now();
 
+    //订阅一系列传感器数据
     // subscribe to odom messages
     if (odom_used_){
       ROS_DEBUG("Odom sensor can be used");
@@ -152,6 +157,16 @@ namespace estimation
 
 
 
+
+
+
+
+
+
+
+
+
+
   // destructor
   OdomEstimationNode::~OdomEstimationNode(){
 
@@ -182,29 +197,35 @@ namespace estimation
     odom_time_  = Time::now();
     Quaternion q;
     tf::quaternionMsgToTF(odom->pose.pose.orientation, q);
+    //构造一个transform，odom to base_link
     odom_meas_  = Transform(q, Vector3(odom->pose.pose.position.x, odom->pose.pose.position.y, 0));
     for (unsigned int i=0; i<6; i++)
       for (unsigned int j=0; j<6; j++)
         odom_covariance_(i+1, j+1) = odom->pose.covariance[6*i+j];
 
+    //将tf添加到transformer_ buffer中，用于记录和查询tf
     my_filter_.addMeasurement(StampedTransform(odom_meas_.inverse(), odom_stamp_, base_footprint_frame_, "wheelodom"), odom_covariance_);
     
     // activate odom
+    //初始化的时候是false，订阅到第一条数据就被激活了
     if (!odom_active_) {
       if (!odom_initializing_){
-	odom_initializing_ = true;
-	odom_init_stamp_ = odom_stamp_;
-	ROS_INFO("Initializing Odom sensor");      
+        odom_initializing_ = true;
+        odom_init_stamp_ = odom_stamp_;
+        ROS_INFO("Initializing Odom sensor");      
       }
+      //filter_stamp在订阅topic之前，所以不可能大于的啊。在filter loop中，会更新filter_stamp
+      //滤波器的时间戳必须大于odom的时间戳，才会将odom激活
       if ( filter_stamp_ >= odom_init_stamp_){
-	odom_active_ = true;
-	odom_initializing_ = false;
-	ROS_INFO("Odom sensor activated");      
+        odom_active_ = true;
+        odom_initializing_ = false;
+        ROS_INFO("Odom sensor activated");      
       }
       else ROS_DEBUG("Waiting to activate Odom, because Odom measurements are still %f sec in the future.", 
 		    (odom_init_stamp_ - filter_stamp_).toSec());
     }
     
+    //这个可以，还可以写log文件的，默认为false
     if (debug_){
       // write to file
       double tmp, yaw;
@@ -227,6 +248,7 @@ namespace estimation
     imu_stamp_ = imu->header.stamp;
     tf::Quaternion orientation;
     quaternionMsgToTF(imu->orientation, orientation);
+    //imu的transform的位姿，这里就设置为0了，后面会更新
     imu_meas_ = tf::Transform(orientation, tf::Vector3(0,0,0));
     for (unsigned int i=0; i<3; i++)
       for (unsigned int j=0; j<3; j++)
@@ -245,11 +267,13 @@ namespace estimation
     }
     StampedTransform base_imu_offset;
     robot_state_.lookupTransform(base_footprint_frame_, imu->header.frame_id, imu_stamp_, base_imu_offset);
+    //这里更新了imu_meas_
     imu_meas_ = imu_meas_ * base_imu_offset;
 
     imu_time_  = Time::now();
 
     // manually set covariance untile imu sends covariance
+    //如果imu没有设定协方差，手动设置一个值
     if (imu_covariance_(1,1) == 0.0){
       SymmetricMatrix measNoiseImu_Cov(3);  measNoiseImu_Cov = 0;
       measNoiseImu_Cov(1,1) = pow(0.00017,2);  // = 0.01 degrees / sec
@@ -376,12 +400,20 @@ namespace estimation
 
 
 
+
+
+
+
+
+
+
   // filter loop
   void OdomEstimationNode::spin(const ros::TimerEvent& e)
   {
     ROS_DEBUG("Spin function at time %f", ros::Time::now().toSec());
 
     // check for timing problems
+    //检查imu和odom的时间间隔是否超过1s，没法融合
     if ( (odom_initializing_ || odom_active_) && (imu_initializing_ || imu_active_) ){
       double diff = fabs( Duration(odom_stamp_ - imu_stamp_).toSec() );
       if (diff > 1.0) ROS_ERROR("Timestamps of odometry and imu are %f seconds apart.", diff);
@@ -391,6 +423,7 @@ namespace estimation
     filter_stamp_ = Time::now();
     
     // check which sensors are still active
+    //如果传感器数据的时间已经超时了1s，则丢弃
     if ((odom_active_ || odom_initializing_) && 
         (Time::now() - odom_time_).toSec() > timeout_){
       odom_active_ = false; odom_initializing_ = false;
@@ -418,6 +451,7 @@ namespace estimation
     if (odom_active_ || imu_active_ || vo_active_ || gps_active_){
       
       // update filter at time where all sensor measurements are available
+      //将filter_stamp设置为最早的传感器的时间。本来filter_stamp是要大于所有传感器时间的
       if (odom_active_)  filter_stamp_ = min(filter_stamp_, odom_stamp_);
       if (imu_active_)   filter_stamp_ = min(filter_stamp_, imu_stamp_);
       if (vo_active_)    filter_stamp_ = min(filter_stamp_, vo_stamp_);
@@ -425,17 +459,22 @@ namespace estimation
 
       
       // update filter
+      //默认是没有初始化的，在后面进行了初始化，用传感器的数据的第一帧数据作为先验
       if ( my_filter_.isInitialized() )  {
         bool diagnostics = true;
+        //关键是这个函数，实现了数据的融合
         if (my_filter_.update(odom_active_, imu_active_,gps_active_, vo_active_,  filter_stamp_, diagnostics)){
           
           // output most recent estimate and relative covariance
           my_filter_.getEstimate(output_);
+          //发布融合后的位姿，只是用来debug的吧
           pose_pub_.publish(output_);
           ekf_sent_counter_++;
           
           // broadcast most recent estimate to TransformArray
+          //发布融合后的tf
           StampedTransform tmp;
+          //获取融合后的位姿
           my_filter_.getEstimate(ros::Time(), tmp);
           if(!vo_active_ && !gps_active_)
             tmp.getOrigin().setZ(0.0);
@@ -458,22 +497,24 @@ namespace estimation
 
 
       // initialize filer with odometry frame
+      //如果有gps数据，则可以用imu来初始化，否则得用odom来初始化
+      //如果用uwb的话，是不是可以用uwb+imu来初始化呢
       if (imu_active_ && gps_active_ && !my_filter_.isInitialized()) {
-	Quaternion q = imu_meas_.getRotation();
+	      Quaternion q = imu_meas_.getRotation();
         Vector3 p = gps_meas_.getOrigin();
         Transform init_meas_ = Transform(q, p);
         my_filter_.initialize(init_meas_, gps_stamp_);
         ROS_INFO("Kalman filter initialized with gps and imu measurement");
       }	
       else if ( odom_active_ && gps_active_ && !my_filter_.isInitialized()) {
-	Quaternion q = odom_meas_.getRotation();
+	      Quaternion q = odom_meas_.getRotation();
         Vector3 p = gps_meas_.getOrigin();
         Transform init_meas_ = Transform(q, p);
         my_filter_.initialize(init_meas_, gps_stamp_);
         ROS_INFO("Kalman filter initialized with gps and odometry measurement");
       }
       else if ( vo_active_ && gps_active_ && !my_filter_.isInitialized()) {
-	Quaternion q = vo_meas_.getRotation();
+	      Quaternion q = vo_meas_.getRotation();
         Vector3 p = gps_meas_.getOrigin();
         Transform init_meas_ = Transform(q, p);
         my_filter_.initialize(init_meas_, gps_stamp_);
@@ -489,6 +530,11 @@ namespace estimation
       }
     }
   };
+
+
+
+
+
 
 
 bool OdomEstimationNode::getStatus(robot_pose_ekf::GetStatus::Request& req, robot_pose_ekf::GetStatus::Response& resp)

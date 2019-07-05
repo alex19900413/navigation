@@ -130,15 +130,19 @@ namespace estimation
   {
     // set prior of filter
     ColumnVector prior_Mu(6); 
+    //根据transform解算得到x，y，z，rpy
     decomposeTransform(prior, prior_Mu(1), prior_Mu(2), prior_Mu(3), prior_Mu(4), prior_Mu(5), prior_Mu(6));
     SymmetricMatrix prior_Cov(6); 
+    //协方差，相互之间无关联
     for (unsigned int i=1; i<=6; i++) {
       for (unsigned int j=1; j<=6; j++){
 	if (i==j)  prior_Cov(i,j) = pow(0.001,2);
 	else prior_Cov(i,j) = 0;
       }
     }
+    //6轴状态的高斯分布
     prior_  = new Gaussian(prior_Mu,prior_Cov);
+    //扩展卡尔曼滤波器
     filter_ = new ExtendedKalmanFilter(prior_);
 
     // remember prior
@@ -178,6 +182,7 @@ namespace estimation
     // --------------------
     // for now only add system noise
     ColumnVector vel_desi(2); vel_desi = 0;
+    //初始化系统模型sys_model
     filter_->Update(sys_model_, vel_desi);
 
     
@@ -185,11 +190,14 @@ namespace estimation
     // ------------------------
     ROS_DEBUG("Process odom meas");
     if (odom_active){
+      //查找tf变换是否可行。这里的里程计frame要改,base_footprint_frame可以在launch文件中改
       if (!transformer_.canTransform(base_footprint_frame_,"wheelodom", filter_time)){
         ROS_ERROR("filter time older than odom message buffer");
         return false;
       }
+      //不知道这个tf，是不是base 到 odom的位姿变换，坐标系是base
       transformer_.lookupTransform("wheelodom", base_footprint_frame_, filter_time, odom_meas_);
+      //初始值为false
       if (odom_initialized_){
 	// convert absolute odom measurements to relative odom measurements in horizontal plane
 	Transform odom_rel_frame =  Transform(tf::createQuaternionFromYaw(filter_estimate_old_vec_(6)), 
