@@ -44,7 +44,6 @@
 #include <bfl/pdf/analyticconditionalgaussian.h>
 #include <bfl/pdf/linearanalyticconditionalgaussian.h>
 #include "nonlinearanalyticconditionalgaussianodo.h"
-
 // TF
 #include <tf/tf.h>
 

@@ -67,8 +67,13 @@
 #include <boost/foreach.hpp>
 #include "uwb_node/Uwb.h"
 #define NEW_UNIFORM_SAMPLING 1
-
 using namespace amcl;
+
+double uwb_px,uwb_py;
+// boost::shared_mutex p_mutex;
+// typedef boost::shared_lock<boost::shared_mutex> readLock;
+// typedef boost::unique_lock<boost::shared_mutex> writeLock;
+boost::mutex p_mutex;
 
 // Pose hypothesis
 //位姿预测
@@ -1594,6 +1599,16 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
          puts("");
        */
 
+      //在copy前，先比对uwb的位置信息
+      // readLock rl(p_mutex);
+      p_mutex.lock();
+      ROS_INFO("Max weight pose: %.3f %.3f %.3f,,,,,,,uwb_pose: %.3f %.3f",
+                hyps[max_weight_hyp].pf_pose_mean.v[0],
+                hyps[max_weight_hyp].pf_pose_mean.v[1],
+                hyps[max_weight_hyp].pf_pose_mean.v[2],
+                uwb_px,
+                uwb_py);
+      p_mutex.unlock();
       geometry_msgs::PoseWithCovarianceStamped p;
       // Fill in the header
       p.header.frame_id = global_frame_id_;
@@ -1774,6 +1789,12 @@ void AmclNode::uwbPoseReceived(const uwb_node::UwbConstPtr& msg)
   Pos.pose.pose.position.y = ( diff_y_ - msg->position.x) / 100.0;
   Pos.pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
 
+  // writeLock wl(p_mutex);
+  p_mutex.lock();
+  uwb_px = Pos.pose.pose.position.x;
+  uwb_py = Pos.pose.pose.position.y;
+  p_mutex.unlock();
+  
   // ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
   //       msg->position.x,
   //       msg->position.y,
@@ -1782,7 +1803,7 @@ void AmclNode::uwbPoseReceived(const uwb_node::UwbConstPtr& msg)
 
   //得规定一个yaw角, 到底是从imu得到呢, 还是固定一个方向?
   //啥都不做,Pos.pose.pose.orientation默认为0
-  if(!initPose_)
+  if(!initPose_ && use_uwb_)
   {
     handleInitialPoseMessage(Pos);
     initPose_ = true;

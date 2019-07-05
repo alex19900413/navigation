@@ -617,7 +617,7 @@ namespace move_base {
       //run planner
       //全局路径是一些列的位姿点
       planner_plan_->clear();
-      //clear map
+      //clear map,感觉并没有用啊，没有clear
       recovery_behaviors_[0]->runBehavior();
       //实际上是调用global_planner的makePlan函数,一般global默认是Navfn/NavfnROS
       bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);

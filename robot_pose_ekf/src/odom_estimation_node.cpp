@@ -56,18 +56,22 @@ namespace estimation
       imu_active_(false),
       vo_active_(false),
       gps_active_(false),
+      uwb_active_(false),
       odom_initializing_(false),
       imu_initializing_(false),
       vo_initializing_(false),
       gps_initializing_(false),
+      uwb_initializing_(false),
       odom_covariance_(6),
       imu_covariance_(3),
       vo_covariance_(6),
       gps_covariance_(3),
+      uwb_covariance_(3),
       odom_callback_counter_(0),
       imu_callback_counter_(0),
       vo_callback_counter_(0),
       gps_callback_counter_(0),
+      uwb_callback_counter_(0),
       ekf_sent_counter_(0)
   {
     ros::NodeHandle nh_private("~");
@@ -81,6 +85,7 @@ namespace estimation
     nh_private.param("imu_used",  imu_used_, true);
     nh_private.param("vo_used",   vo_used_, true);
     nh_private.param("gps_used",   gps_used_, false);
+    nh_private.param("uwb_used",   uwb_used_, false);
     nh_private.param("debug",   debug_, false);
     nh_private.param("self_diagnose",  self_diagnose_, false);
     double freq;
@@ -138,6 +143,12 @@ namespace estimation
     }
     else ROS_DEBUG("GPS sensor will NOT be used");
 
+    if (uwb_used_){
+      ROS_DEBUG("UWB sensor can be used");
+      gps_sub_ = nh.subscribe("uwb", 10, &OdomEstimationNode::uwbCallback, this);
+    }
+    else ROS_DEBUG("GPS sensor will NOT be used");
+
 
     // publish state service
     state_srv_ = nh_private.advertiseService("get_status", &OdomEstimationNode::getStatus, this);
@@ -148,6 +159,7 @@ namespace estimation
       imu_file_.open("/tmp/imu_file.txt");
       vo_file_.open("/tmp/vo_file.txt");
       gps_file_.open("/tmp/gps_file.txt");
+      uwb_file_.open("/tmp/gps_file.txt");
       corr_file_.open("/tmp/corr_file.txt");
 
   
@@ -175,6 +187,7 @@ namespace estimation
       odom_file_.close();
       imu_file_.close();
       gps_file_.close();
+      uwb_file_.close();
       vo_file_.close();
       corr_file_.close();
     }
@@ -204,7 +217,8 @@ namespace estimation
         odom_covariance_(i+1, j+1) = odom->pose.covariance[6*i+j];
 
     //将tf添加到transformer_ buffer中，用于记录和查询tf
-    my_filter_.addMeasurement(StampedTransform(odom_meas_.inverse(), odom_stamp_, base_footprint_frame_, "wheelodom"), odom_covariance_);
+    //odomtopic是odom to base_link，这里取逆了，所以是base_link to odom。正如网上说的，用的是其相对坐标的数据
+    my_filter_.addMeasurement(StampedTransform(odom_meas_.inverse(), odom_stamp_, base_footprint_frame_, "odom"), odom_covariance_);
     
     // activate odom
     //初始化的时候是false，订阅到第一条数据就被激活了
@@ -282,7 +296,7 @@ namespace estimation
       imu_covariance_ = measNoiseImu_Cov;
     }
 
-    my_filter_.addMeasurement(StampedTransform(imu_meas_.inverse(), imu_stamp_, base_footprint_frame_, "imu"), imu_covariance_);
+    my_filter_.addMeasurement(StampedTransform(imu_meas_.inverse(), imu_stamp_, base_footprint_frame_, "imu_link"), imu_covariance_);
     
     // activate imu
     if (!imu_active_) {
@@ -398,6 +412,52 @@ namespace estimation
     }
   };
 
+
+  void OdomEstimationNode::uwbCallback(const UwbConstPtr& uwb){
+    uwb_callback_counter_++;
+
+    assert(uwb_used_);
+
+    // get data
+    uwb_stamp_ = uwb->header.stamp;
+    uwb_time_  = Time::now();
+    //uwb我用的geometry_msgs::point
+    geometry_msgs::PoseWithCovariance uwb_pose;
+    uwb_pose.pose.position = uwb->position;
+    if (isnan(uwb_pose.pose.position.z)){
+      // if we have no linear z component in the GPS message, set it to 0 so that we can still get a transform via `tf
+      // (which does not like "NaN" values)
+      uwb_pose.pose.position.z = 0;
+      // set the covariance for the linear z component very high so we just ignore it
+      uwb_pose.covariance[6*2 + 2] = std::numeric_limits<double>::max();
+    }
+    poseMsgToTF(uwb_pose.pose, uwb_meas_);
+    for (unsigned int i=0; i<3; i++)
+      for (unsigned int j=0; j<3; j++)
+        uwb_covariance_(i+1, j+1) = uwb_pose.covariance[6*i+j];
+    my_filter_.addMeasurement(StampedTransform(uwb_meas_.inverse(), gps_stamp_, base_footprint_frame_, "uwb"), uwb_covariance_);
+    
+    // activate gps
+    if (!uwb_active_) {
+      if (!uwb_initializing_){
+	    uwb_initializing_ = true;
+	    uwb_init_stamp_ = gps_stamp_;
+	    ROS_INFO("Initializing uwb sensor");      
+      }
+      if (filter_stamp_ >= uwb_init_stamp_){
+	    uwb_active_ = true;
+	    uwb_initializing_ = false;
+	    ROS_INFO("uwb sensor activated");      
+      }
+      else ROS_DEBUG("Waiting to activate uwb, because uwb measurements are still %f sec in the future.", 
+		    (uwb_init_stamp_ - filter_stamp_).toSec());
+    }
+    
+    if (debug_){
+      // write to file
+      uwb_file_ <<fixed<<setprecision(5)<<ros::Time::now().toSec()<<" "<< uwb_meas_.getOrigin().x() << " " << uwb_meas_.getOrigin().y() << " " << uwb_meas_.getOrigin().z() <<endl;
+    }
+  };
 
 
 
