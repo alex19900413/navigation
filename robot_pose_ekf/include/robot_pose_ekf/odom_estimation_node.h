@@ -132,6 +132,7 @@ private:
   ros::Time odom_time_, imu_time_, vo_time_, gps_time_, uwb_time_;
   ros::Time odom_stamp_, imu_stamp_, vo_stamp_, gps_stamp_, filter_stamp_, uwb_stamp_;
   ros::Time odom_init_stamp_, imu_init_stamp_, vo_init_stamp_, gps_init_stamp_, uwb_init_stamp_;
+  //必须有传感器是激活状态，才会被用作update操作。当传感器收到第二帧数据时，才会被激活。当传感器数据中断超过1s时，初始化和激活flag都会被置false
   bool odom_active_, imu_active_, vo_active_, gps_active_, uwb_active_;
   bool odom_used_, imu_used_, vo_used_, gps_used_,uwb_used_;
   bool odom_initializing_, imu_initializing_, vo_initializing_, gps_initializing_, uwb_initializing_;

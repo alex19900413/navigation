@@ -23,12 +23,13 @@ namespace BFL
 {
   using namespace MatrixWrapper;
 
-
+  // 继承自AnalyticConditionalGaussianAdditiveNoise，两个参数：第一个是增加的噪音，第二个是条件参数的数目
   NonLinearAnalyticConditionalGaussianOdo::NonLinearAnalyticConditionalGaussianOdo(const Gaussian& additiveNoise)
     : AnalyticConditionalGaussianAdditiveNoise(additiveNoise,NUMCONDARGUMENTS_MOBILE),
       df(6,6)
   {
     // initialize df matrix
+    //初始化diff function，这是雅克比矩阵吗？
     for (unsigned int i=1; i<=6; i++){
       for (unsigned int j=1; j<=6; j++){
 	if (i==j) df(i,j) = 1;

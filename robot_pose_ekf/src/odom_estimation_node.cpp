@@ -107,6 +107,8 @@ namespace estimation
     my_filter_.setBaseFootprintFrame(base_footprint_frame_);
 
     //开启一个定时器，执行循环滤波操作
+    //虽然定时器函数在topic订阅函数之前，但是不影响。因为spin中的时间大于topic初始时间时，才会激活传感器，才可以进行update
+    //所以这里先进入spin，但是时间小于topic订阅时间，所以也不会update
     timer_ = nh_private.createTimer(ros::Duration(1.0/max(freq,1.0)), &OdomEstimationNode::spin, this);
 
     // advertise our estimation
@@ -124,9 +126,10 @@ namespace estimation
     else ROS_DEBUG("Odom sensor will NOT be used");
 
     // subscribe to imu messages
+    //modify imu topic type
     if (imu_used_){
       ROS_DEBUG("Imu sensor can be used");
-      imu_sub_ = nh.subscribe("imu_data", 10,  &OdomEstimationNode::imuCallback, this);
+      imu_sub_ = nh.subscribe("imu", 10,  &OdomEstimationNode::imuCallback, this);
     }
     else ROS_DEBUG("Imu sensor will NOT be used");
 
@@ -218,6 +221,7 @@ namespace estimation
 
     //将tf添加到transformer_ buffer中，用于记录和查询tf
     //odomtopic是odom to base_link，这里取逆了，所以是base_link to odom。正如网上说的，用的是其相对坐标的数据
+    //modify wheelodom
     my_filter_.addMeasurement(StampedTransform(odom_meas_.inverse(), odom_stamp_, base_footprint_frame_, "odom"), odom_covariance_);
     
     // activate odom
@@ -421,21 +425,29 @@ namespace estimation
     // get data
     uwb_stamp_ = uwb->header.stamp;
     uwb_time_  = Time::now();
-    //uwb我用的geometry_msgs::point
+    //uwb我用的geometry_msgs::point,没有定义协方差哦
     geometry_msgs::PoseWithCovariance uwb_pose;
     uwb_pose.pose.position = uwb->position;
-    if (isnan(uwb_pose.pose.position.z)){
-      // if we have no linear z component in the GPS message, set it to 0 so that we can still get a transform via `tf
-      // (which does not like "NaN" values)
-      uwb_pose.pose.position.z = 0;
-      // set the covariance for the linear z component very high so we just ignore it
-      uwb_pose.covariance[6*2 + 2] = std::numeric_limits<double>::max();
-    }
+    // if (isnan(uwb_pose.pose.position.z)){
+    //   // if we have no linear z component in the GPS message, set it to 0 so that we can still get a transform via `tf
+    //   // (which does not like "NaN" values)
+    //   uwb_pose.pose.position.z = 0;
+    //   // set the covariance for the linear z component very high so we just ignore it
+    //   uwb_pose.covariance[6*2 + 2] = std::numeric_limits<double>::max();
+    // }
     poseMsgToTF(uwb_pose.pose, uwb_meas_);
     for (unsigned int i=0; i<3; i++)
       for (unsigned int j=0; j<3; j++)
-        uwb_covariance_(i+1, j+1) = uwb_pose.covariance[6*i+j];
-    my_filter_.addMeasurement(StampedTransform(uwb_meas_.inverse(), gps_stamp_, base_footprint_frame_, "uwb"), uwb_covariance_);
+        uwb_covariance_(i+1, j+1) = uwb_pose.covariance[3*i+j];
+    //如果uwb没有设定协方差，手动设置一个值
+    if (uwb_covariance_(1,1) == 0.0){
+      SymmetricMatrix measNoiseImu_Cov(3);  measNoiseImu_Cov = 0;
+      measNoiseImu_Cov(1,1) = pow(0.00017,2);  
+      measNoiseImu_Cov(2,2) = pow(0.00017,2);  
+      measNoiseImu_Cov(3,3) = pow(0.00017,2);  
+      uwb_covariance_ = measNoiseImu_Cov;
+    }
+    my_filter_.addMeasurement(StampedTransform(uwb_meas_.inverse(), uwb_stamp_, base_footprint_frame_, "uwb"), uwb_covariance_);
     
     // activate gps
     if (!uwb_active_) {
@@ -483,7 +495,7 @@ namespace estimation
     filter_stamp_ = Time::now();
     
     // check which sensors are still active
-    //如果传感器数据的时间已经超时了1s，则丢弃
+    //如果传感器数据的时间已经超时了1s，则丢弃。并把传感器状态置false
     if ((odom_active_ || odom_initializing_) && 
         (Time::now() - odom_time_).toSec() > timeout_){
       odom_active_ = false; odom_initializing_ = false;
@@ -506,9 +518,16 @@ namespace estimation
       ROS_INFO("GPS sensor not active any more");
     }
 
+    if ((uwb_active_ || uwb_initializing_) && 
+        (Time::now() - uwb_time_).toSec() > timeout_){
+      uwb_active_ = false;  uwb_initializing_ = false;
+      ROS_INFO("uwb sensor not active any more");
+    }
+
     
     // only update filter when one of the sensors is active
-    if (odom_active_ || imu_active_ || vo_active_ || gps_active_){
+    //只要有一个传感器被激活了，就可以去update
+    if (odom_active_ || imu_active_ || vo_active_ || gps_active_ || uwb_active_){
       
       // update filter at time where all sensor measurements are available
       //将filter_stamp设置为最早的传感器的时间。本来filter_stamp是要大于所有传感器时间的
@@ -516,16 +535,19 @@ namespace estimation
       if (imu_active_)   filter_stamp_ = min(filter_stamp_, imu_stamp_);
       if (vo_active_)    filter_stamp_ = min(filter_stamp_, vo_stamp_);
       if (gps_active_)  filter_stamp_ = min(filter_stamp_, gps_stamp_);
+      if (uwb_active_)  filter_stamp_ = min(filter_stamp_, uwb_stamp_);
 
       
       // update filter
       //默认是没有初始化的，在后面进行了初始化，用传感器的数据的第一帧数据作为先验
+      //建立好ekf之后，就是置true。在第二帧odom数据收到的时候开始初始化
       if ( my_filter_.isInitialized() )  {
         bool diagnostics = true;
         //关键是这个函数，实现了数据的融合
-        if (my_filter_.update(odom_active_, imu_active_,gps_active_, vo_active_,  filter_stamp_, diagnostics)){
+        if (my_filter_.update(odom_active_, imu_active_,gps_active_, vo_active_, uwb_active_,  filter_stamp_, diagnostics)){
           
           // output most recent estimate and relative covariance
+          //发布最近的状态估计及协方差矩阵
           my_filter_.getEstimate(output_);
           //发布融合后的位姿，只是用来debug的吧
           pose_pub_.publish(output_);
@@ -534,7 +556,7 @@ namespace estimation
           // broadcast most recent estimate to TransformArray
           //发布融合后的tf
           StampedTransform tmp;
-          //获取融合后的位姿
+          //获取融合后的位姿，base_link to odom,其实who to who没关系，只要能建立变换就可以
           my_filter_.getEstimate(ros::Time(), tmp);
           if(!vo_active_ && !gps_active_)
             tmp.getOrigin().setZ(0.0);
@@ -557,8 +579,8 @@ namespace estimation
 
 
       // initialize filer with odometry frame
-      //如果有gps数据，则可以用imu来初始化，否则得用odom来初始化
-      //如果用uwb的话，是不是可以用uwb+imu来初始化呢
+      //如果有gps数据，则可以用imu来初始化，否则得用odom来初始化。odom可以是轮速计得到的，也可以是vo计算出来的
+      //如果用uwb的话，是不是可以用uwb+imu来初始化呢。不用，还是用odom来初始化
       if (imu_active_ && gps_active_ && !my_filter_.isInitialized()) {
 	      Quaternion q = imu_meas_.getRotation();
         Vector3 p = gps_meas_.getOrigin();
@@ -580,6 +602,7 @@ namespace estimation
         my_filter_.initialize(init_meas_, gps_stamp_);
         ROS_INFO("Kalman filter initialized with gps and visual odometry measurement");
       }
+      //一般情况是imu+odom的融合，用odom作为预测。那我可以在这里改一下，用uwb去做预测怎么样？
       else if ( odom_active_  && !gps_used_ && !my_filter_.isInitialized()){
         my_filter_.initialize(odom_meas_, odom_stamp_);
         ROS_INFO("Kalman filter initialized with odom measurement");

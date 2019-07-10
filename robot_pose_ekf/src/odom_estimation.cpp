@@ -54,14 +54,18 @@ namespace estimation
     imu_initialized_(false),
     vo_initialized_(false),
     gps_initialized_(false),
+    uwb_initialized_(false),
     output_frame_(std::string("odom_combined")),
     base_footprint_frame_(std::string("base_footprint"))
   {
     // create SYSTEM MODEL
+    //在概率机器人中也叫预测模型，这里初始化模型的均值和方差
     ColumnVector sysNoise_Mu(6);  sysNoise_Mu = 0;
     SymmetricMatrix sysNoise_Cov(6); sysNoise_Cov = 0;
     for (unsigned int i=1; i<=6; i++) sysNoise_Cov(i,i) = pow(1000.0,2);
+    // 采用均值和协方差矩阵生成代表系统不确定性的高斯分布
     Gaussian system_Uncertainty(sysNoise_Mu, sysNoise_Cov);
+    // 利用高斯分布生成系统噪音的概率密度函数（pdf），根据pdf创建带有高斯不确定度的系统模型。
     sys_pdf_   = new NonLinearAnalyticConditionalGaussianOdo(system_Uncertainty);
     sys_model_ = new AnalyticSystemModelGaussianUncertainty(sys_pdf_);
 
@@ -104,6 +108,16 @@ namespace estimation
     Hgps(1,1) = 1;    Hgps(2,2) = 1;    Hgps(3,3) = 1;    
     gps_meas_pdf_   = new LinearAnalyticConditionalGaussian(Hgps, measurement_Uncertainty_GPS);
     gps_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(gps_meas_pdf_);
+
+    // create MEASUREMENT MODEL UWB，均值为0，方差为1的高斯分布
+    ColumnVector measNoiseUwb_Mu(3);  measNoiseUwb_Mu = 0;
+    SymmetricMatrix measNoiseUwb_Cov(3);  measNoiseUwb_Cov = 0;
+    for (unsigned int i=1; i<=3; i++) measNoiseUwb_Cov(i,i) = 1;
+    Gaussian measurement_Uncertainty_UWB(measNoiseUwb_Mu, measNoiseGps_Cov);
+    Matrix Huwb(3,6);  Huwb = 0;
+    Huwb(1,1) = 1;    Huwb(2,2) = 1;    Huwb(3,3) = 1;    
+    uwb_meas_pdf_   = new LinearAnalyticConditionalGaussian(Huwb, measurement_Uncertainty_UWB);
+    uwb_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(uwb_meas_pdf_);
   };
 
 
@@ -120,20 +134,23 @@ namespace estimation
     delete vo_meas_pdf_;
     delete gps_meas_model_;
     delete gps_meas_pdf_;
+    delete uwb_meas_model_;
+    delete uwb_meas_pdf_;
     delete sys_pdf_;
     delete sys_model_;
   };
 
 
   // initialize prior density of filter 
+  //这个就是状态预测了，用一个时间间隔内的位移和片杭椒，结合系统状态量和协方差进行预测。每个spin中都会执行
   void OdomEstimation::initialize(const Transform& prior, const Time& time)
   {
     // set prior of filter
     ColumnVector prior_Mu(6); 
-    //根据transform解算得到x，y，z，rpy
+    //根据transform解算得到x，y，z，rpy，作为期望。ekf中的R，Q是一直变换的。而KF中则是固定的
     decomposeTransform(prior, prior_Mu(1), prior_Mu(2), prior_Mu(3), prior_Mu(4), prior_Mu(5), prior_Mu(6));
     SymmetricMatrix prior_Cov(6); 
-    //协方差，相互之间无关联
+    //协方差，相互之间无关联。每个轴给了一个非常小的方差
     for (unsigned int i=1; i<=6; i++) {
       for (unsigned int j=1; j<=6; j++){
 	if (i==j)  prior_Cov(i,j) = pow(0.001,2);
@@ -145,7 +162,7 @@ namespace estimation
     //扩展卡尔曼滤波器
     filter_ = new ExtendedKalmanFilter(prior_);
 
-    // remember prior
+    // remember prior 记录初始值
     addMeasurement(StampedTransform(prior, time, output_frame_, base_footprint_frame_));
     filter_estimate_old_vec_ = prior_Mu;
     filter_estimate_old_ = prior;
@@ -160,7 +177,7 @@ namespace estimation
 
 
   // update filter
-  bool OdomEstimation::update(bool odom_active, bool imu_active, bool gps_active, bool vo_active, const Time&  filter_time, bool& diagnostics_res)
+  bool OdomEstimation::update(bool odom_active, bool imu_active, bool gps_active, bool vo_active,bool uwb_active, const Time&  filter_time, bool& diagnostics_res)
   {
     // only update filter when it is initialized
     if (!filter_initialized_){
@@ -181,6 +198,7 @@ namespace estimation
     // system update filter
     // --------------------
     // for now only add system noise
+    //一开始，ekf滤波器只加上系统噪声
     ColumnVector vel_desi(2); vel_desi = 0;
     //初始化系统模型sys_model
     filter_->Update(sys_model_, vel_desi);
@@ -191,25 +209,32 @@ namespace estimation
     ROS_DEBUG("Process odom meas");
     if (odom_active){
       //查找tf变换是否可行。这里的里程计frame要改,base_footprint_frame可以在launch文件中改
-      if (!transformer_.canTransform(base_footprint_frame_,"wheelodom", filter_time)){
+      //modify wheelodom
+      if (!transformer_.canTransform(base_footprint_frame_,"odom", filter_time)){
         ROS_ERROR("filter time older than odom message buffer");
         return false;
       }
-      //不知道这个tf，是不是base 到 odom的位姿变换，坐标系是base
-      transformer_.lookupTransform("wheelodom", base_footprint_frame_, filter_time, odom_meas_);
+      //这个tf，是base 到 odom的位姿变换，第一个参数是target
+      //modify wheelodom
+      transformer_.lookupTransform("odom", base_footprint_frame_, filter_time, odom_meas_);
       //初始值为false
       if (odom_initialized_){
 	// convert absolute odom measurements to relative odom measurements in horizontal plane
+  // 将绝对里程测量值转换至水平平面内的相对里程计测量值（坐标转换tf仍然由旋转和平移构成）
+  //角度用的先验，但是位姿用的上次估计值-上次测量+这次测量，why？这次测量-上次测量，就是位姿增量哈
 	Transform odom_rel_frame =  Transform(tf::createQuaternionFromYaw(filter_estimate_old_vec_(6)), 
 					      filter_estimate_old_.getOrigin()) * odom_meas_old_.inverse() * odom_meas_;
 	ColumnVector odom_rel(6); 
 	decomposeTransform(odom_rel_frame, odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
+  //如果角度有溢出，则修正角度
 	angleOverflowCorrect(odom_rel(6), filter_estimate_old_vec_(6));
 	// update filter
+  //更新协方差矩阵
 	odom_meas_pdf_->AdditiveNoiseSigmaSet(odom_covariance_ * pow(dt,2));
 
         ROS_DEBUG("Update filter with odom measurement %f %f %f %f %f %f", 
                   odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
+  //给里程计系统模型更新这次的测量值
 	filter_->Update(odom_meas_model_, odom_rel);
 	diagnostics_odom_rot_rel_ = odom_rel(6);
       }
@@ -304,6 +329,31 @@ namespace estimation
     // sensor not active
     else gps_initialized_ = false;
 
+    // process uwb measurement
+    // ----------------------
+    if (uwb_active){
+      if (!transformer_.canTransform(base_footprint_frame_,"uwb", filter_time)){
+        ROS_ERROR("filter time older than gps message buffer");
+        return false;
+      }
+      transformer_.lookupTransform("uwb", base_footprint_frame_, filter_time, uwb_meas_);
+      if (uwb_initialized_){
+        uwb_meas_pdf_->AdditiveNoiseSigmaSet(uwb_covariance_ * pow(dt,2));
+        ColumnVector uwb_vec(3);
+        double tmp;
+        //Take gps as an absolute measurement, do not convert to relative measurement
+        decomposeTransform(uwb_meas_, uwb_vec(1), uwb_vec(2), uwb_vec(3), tmp, tmp, tmp);
+        filter_->Update(uwb_meas_model_,  uwb_vec);
+      }
+      else {
+        uwb_initialized_ = true;
+        uwb_meas_old_ = uwb_meas_;
+      }
+    }
+    // sensor not active
+    else uwb_initialized_ = false;
+
+
   
     
     // remember last estimate
@@ -313,6 +363,7 @@ namespace estimation
     filter_estimate_old_ = Transform(q,
 				     Vector3(filter_estimate_old_vec_(1), filter_estimate_old_vec_(2), filter_estimate_old_vec_(3)));
     filter_time_old_ = filter_time;
+    //odom to base_link
     addMeasurement(StampedTransform(filter_estimate_old_, filter_time, output_frame_, base_footprint_frame_));
 
     // diagnostics
@@ -334,6 +385,7 @@ namespace estimation
               meas.getOrigin().x(), meas.getOrigin().y(), meas.getOrigin().z(),
               meas.getRotation().x(),  meas.getRotation().y(), 
               meas.getRotation().z(), meas.getRotation().w());
+    //保存tf变换
     transformer_.setTransform( meas );
   }
 
@@ -348,10 +400,12 @@ namespace estimation
     }
     // add measurements
     addMeasurement(meas);
-    if (meas.child_frame_id_ == "wheelodom") odom_covariance_ = covar;
+    //modify wheelodom
+    if (meas.child_frame_id_ == "odom") odom_covariance_ = covar;
     else if (meas.child_frame_id_ == "imu")  imu_covariance_  = covar;
     else if (meas.child_frame_id_ == "vo")   vo_covariance_   = covar;
     else if (meas.child_frame_id_ == "gps")  gps_covariance_  = covar;
+    else if (meas.child_frame_id_ == "uwb")  uwb_covariance_  = covar;
     else ROS_ERROR("Adding a measurement for an unknown sensor %s", meas.child_frame_id_.c_str());
   };
 
@@ -389,6 +443,7 @@ namespace estimation
   {
     // pose
     StampedTransform tmp;
+    //最后求解的，还是base_link到odom的位姿变换
     if (!transformer_.canTransform(output_frame_, base_footprint_frame_, ros::Time())){
       ROS_ERROR("Cannot get transform at time %f", 0.0);
       return;
