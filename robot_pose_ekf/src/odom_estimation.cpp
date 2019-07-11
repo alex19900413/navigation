@@ -251,11 +251,11 @@ namespace estimation
     // process imu measurement
     // -----------------------
     if (imu_active){
-      if (!transformer_.canTransform(base_footprint_frame_,"imu", filter_time)){
+      if (!transformer_.canTransform(base_footprint_frame_,"imu_link", filter_time)){
         ROS_ERROR("filter time older than imu message buffer");
         return false;
       }
-      transformer_.lookupTransform("imu", base_footprint_frame_, filter_time, imu_meas_);
+      transformer_.lookupTransform("imu_link", base_footprint_frame_, filter_time, imu_meas_);
       if (imu_initialized_){
 	// convert absolute imu yaw measurement to relative imu yaw measurement 
 	Transform imu_rel_frame =  filter_estimate_old_ * imu_meas_old_.inverse() * imu_meas_;
@@ -332,11 +332,11 @@ namespace estimation
     // process uwb measurement
     // ----------------------
     if (uwb_active){
-      if (!transformer_.canTransform(base_footprint_frame_,"uwb", filter_time)){
+      if (!transformer_.canTransform(base_footprint_frame_,"uwb_label", filter_time)){
         ROS_ERROR("filter time older than gps message buffer");
         return false;
       }
-      transformer_.lookupTransform("uwb", base_footprint_frame_, filter_time, uwb_meas_);
+      transformer_.lookupTransform("uwb_label", base_footprint_frame_, filter_time, uwb_meas_);
       if (uwb_initialized_){
         uwb_meas_pdf_->AdditiveNoiseSigmaSet(uwb_covariance_ * pow(dt,2));
         ColumnVector uwb_vec(3);
@@ -402,10 +402,10 @@ namespace estimation
     addMeasurement(meas);
     //modify wheelodom
     if (meas.child_frame_id_ == "odom") odom_covariance_ = covar;
-    else if (meas.child_frame_id_ == "imu")  imu_covariance_  = covar;
+    else if (meas.child_frame_id_ == "imu_link")  imu_covariance_  = covar;
     else if (meas.child_frame_id_ == "vo")   vo_covariance_   = covar;
     else if (meas.child_frame_id_ == "gps")  gps_covariance_  = covar;
-    else if (meas.child_frame_id_ == "uwb")  uwb_covariance_  = covar;
+    else if (meas.child_frame_id_ == "uwb_label")  uwb_covariance_  = covar;
     else ROS_ERROR("Adding a measurement for an unknown sensor %s", meas.child_frame_id_.c_str());
   };
 

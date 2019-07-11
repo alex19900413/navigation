@@ -205,7 +205,7 @@ class AmclNode
     //uwb
     bool use_uwb_;
     bool initPose_; //use uwb to init
-    double diff_x_, diff_y_;
+    double diff_x_, diff_y_, init_angle_;
 
     bool use_map_topic_;
     bool first_map_only_;
@@ -400,6 +400,7 @@ AmclNode::AmclNode() :
   private_nh_.param("initPoseWithUWB", initPose_, false);
   private_nh_.param("x_diff", diff_x_, 4000.0);
   private_nh_.param("y_diff", diff_y_, 4000.0);
+  private_nh_.param("init_angle", init_angle_, 0.0);
 
   // Grab params off the param server
   //判断是否订阅地图信息,默认不使用
@@ -1601,14 +1602,14 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
       //在copy前，先比对uwb的位置信息
       // readLock rl(p_mutex);
-      p_mutex.lock();
+      // p_mutex.lock();
       ROS_INFO("Max weight pose: %.3f %.3f %.3f,,,,,,,uwb_pose: %.3f %.3f",
                 hyps[max_weight_hyp].pf_pose_mean.v[0],
                 hyps[max_weight_hyp].pf_pose_mean.v[1],
                 hyps[max_weight_hyp].pf_pose_mean.v[2],
                 uwb_px,
                 uwb_py);
-      p_mutex.unlock();
+      // p_mutex.unlock();
       geometry_msgs::PoseWithCovarianceStamped p;
       // Fill in the header
       p.header.frame_id = global_frame_id_;
@@ -1660,7 +1661,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       tf::Stamped<tf::Pose> odom_to_map;
       try
       {
-        //这个tf是map -> base_link，由粒子滤波计算出来的
+        //这个tf是map -> base_link，由粒子滤波计算出来的,base_link在地图中的坐标
         tf::Transform tmp_tf(tf::createQuaternionFromYaw(hyps[max_weight_hyp].pf_pose_mean.v[2]),
                              tf::Vector3(hyps[max_weight_hyp].pf_pose_mean.v[0],
                                          hyps[max_weight_hyp].pf_pose_mean.v[1],
@@ -1669,8 +1670,8 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
         tf::Stamped<tf::Pose> tmp_tf_stamped (tmp_tf.inverse(),
                                               laser_scan->header.stamp,
                                               base_frame_id_);
-        //tf变换,将tmp_tf_stamped(base_link)位姿,变换到odom_frame_id(odom)的位姿odom_to_map
-        //temp_tf_stamped是base_link_to_map, 再得到odom_to_base_link,那么输出就是odom_to_map了
+        //base_link to odom的变换，是里程计发布的
+        //这里根据base_link to map 的变换，转到odom坐标系下。前者里程计给出来了，这样就能算出odom to map
         this->tf_->transformPose(odom_frame_id_,
                                  tmp_tf_stamped,
                                  odom_to_map);
@@ -1697,6 +1698,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
         tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(),
                                             transform_expiration,
                                             global_frame_id_, odom_frame_id_);
+        //不知道这里发布odom_to_map的tf是干嘛，是不是给pf定位用的？
         this->tfb_->sendTransform(tmp_tf_stamped);
         sent_first_transform_ = true;
       }
@@ -1788,23 +1790,24 @@ void AmclNode::uwbPoseReceived(const uwb_node::UwbConstPtr& msg)
   Pos.pose.pose.position.x = ( diff_x_ - msg->position.y) / 100.0;
   Pos.pose.pose.position.y = ( diff_y_ - msg->position.x) / 100.0;
   Pos.pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
-
   // writeLock wl(p_mutex);
-  p_mutex.lock();
+  // p_mutex.lock();
   uwb_px = Pos.pose.pose.position.x;
   uwb_py = Pos.pose.pose.position.y;
-  p_mutex.unlock();
+  // p_mutex.unlock();
   
-  // ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
-  //       msg->position.x,
-  //       msg->position.y,
-  //       Pos.pose.pose.position.x,
-  //       Pos.pose.pose.position.y);
+  ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
+        msg->position.x,
+        msg->position.y,
+        Pos.pose.pose.position.x,
+        Pos.pose.pose.position.y);
 
   //得规定一个yaw角, 到底是从imu得到呢, 还是固定一个方向?
   //啥都不做,Pos.pose.pose.orientation默认为0
   if(!initPose_ && use_uwb_)
   {
+    Pos.pose.pose.orientation = tf::createQuaternionMsgFromYaw(init_angle_);
+    ROS_ERROR("init_angle:  %.3f ",init_angle_);
     handleInitialPoseMessage(Pos);
     initPose_ = true;
   }

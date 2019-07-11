@@ -447,7 +447,7 @@ namespace estimation
       measNoiseImu_Cov(3,3) = pow(0.00017,2);  
       uwb_covariance_ = measNoiseImu_Cov;
     }
-    my_filter_.addMeasurement(StampedTransform(uwb_meas_.inverse(), uwb_stamp_, base_footprint_frame_, "uwb"), uwb_covariance_);
+    my_filter_.addMeasurement(StampedTransform(uwb_meas_.inverse(), uwb_stamp_, base_footprint_frame_, "uwb_label"), uwb_covariance_);
     
     // activate gps
     if (!uwb_active_) {
