@@ -66,9 +66,7 @@ namespace custom_recovery{
           costmap_2d::Costmap2DROS* global_costmap, costmap_2d::Costmap2DROS* local_costmap);
 
       /**
-       * @brief  Run the ClearCostmapRecovery recovery behavior. Reverts the
-       * costmap to the static map outside of a user-specified window and
-       * clears unknown space around the robot.
+       * @brief 
        */
       void runBehavior();
 

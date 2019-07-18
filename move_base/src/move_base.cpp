@@ -359,6 +359,16 @@ namespace move_base {
     return true;
   }
 
+  bool MoveBase::clearCostmap(){
+    //clear the costmaps
+    boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock_controller(*(controller_costmap_ros_->getCostmap()->getMutex()));
+    controller_costmap_ros_->resetLayers();
+
+    boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock_planner(*(planner_costmap_ros_->getCostmap()->getMutex()));
+    planner_costmap_ros_->resetLayers();
+    return true;
+  }
+
 
   bool MoveBase::planService(nav_msgs::GetPlan::Request &req, nav_msgs::GetPlan::Response &resp){
     if(as_->isActive()){
@@ -618,7 +628,8 @@ namespace move_base {
       //全局路径是一些列的位姿点
       planner_plan_->clear();
       //clear map,感觉并没有用啊，没有clear
-      recovery_behaviors_[0]->runBehavior();
+      // recovery_behaviors_[0]->runBehavior();
+      clearCostmap();
       //实际上是调用global_planner的makePlan函数,一般global默认是Navfn/NavfnROS
       bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);
       //两种情况，1，路径规划成功，state设置为CONTROLLING. 2，上一次路径规划仍在执行中，state=PLANNING. state还有一种状态，就是clearing。
@@ -1163,7 +1174,9 @@ namespace move_base {
     try{
       //we need to set some parameters based on what's been passed in to us to maintain backwards compatibility
       ros::NodeHandle n("~");
+      //保守clear，只会清除给点半径范围内的障碍物。这里的参数名有加前缀，因为clear_map_recovery中有定义带前缀的nh
       n.setParam("conservative_reset/reset_distance", conservative_reset_dist_);
+      //激进的clear，一般是清除机器人半径4倍的区域，实际上这个可能比保守距离还要短
       n.setParam("aggressive_reset/reset_distance", circumscribed_radius_ * 4);
 
       //first, we'll load a recovery behavior to clear the costmap

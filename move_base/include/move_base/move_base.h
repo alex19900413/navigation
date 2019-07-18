@@ -112,7 +112,7 @@ namespace move_base {
        * @return True if the service call succeeds, false otherwise
        */
       bool clearCostmapsService(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp);
-
+      bool clearCostmap();
       /**
        * @brief  A service call that can be made when the action is inactive that will return a plan
        * @param  req The goal request
