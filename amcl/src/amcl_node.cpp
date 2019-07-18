@@ -1795,12 +1795,12 @@ void AmclNode::uwbPoseReceived(const uwb_node::UwbConstPtr& msg)
   uwb_px = Pos.pose.pose.position.x;
   uwb_py = Pos.pose.pose.position.y;
   // p_mutex.unlock();
-  
-  ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
-        msg->position.x,
-        msg->position.y,
-        Pos.pose.pose.position.x,
-        Pos.pose.pose.position.y);
+  //如果uwb的频率比较高的时候，如果打印message，会阻塞在这里，无法执行下去
+  // ROS_INFO("uwb_pose (%.3f, %.3f )....map_pose(%.3f, %.3f)",
+  //       msg->position.x,
+  //       msg->position.y,
+  //       Pos.pose.pose.position.x,
+  //       Pos.pose.pose.position.y);
 
   //得规定一个yaw角, 到底是从imu得到呢, 还是固定一个方向?
   //啥都不做,Pos.pose.pose.orientation默认为0

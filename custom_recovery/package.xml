@@ -1,0 +1,37 @@
+<package>
+    <name>custom_recovery</name>
+    <version>1.14.4</version>
+    <description>
+
+		this package is a self-defined recovery behavior
+    </description>
+    <author>lcx@hombo.com</author>
+	<maintainer email="alex190413@github.com">David V. Lu!!</maintainer>
+    <license>BSD</license>
+    <url>http://wiki.ros.org/custom_recovery</url>
+
+    <buildtool_depend>catkin</buildtool_depend>
+
+    <build_depend>cmake_modules</build_depend>
+    <build_depend>roscpp</build_depend>
+    <build_depend>tf</build_depend>
+    <build_depend>costmap_2d</build_depend>
+    <build_depend>nav_core</build_depend>
+    <build_depend>pluginlib</build_depend>
+    <build_depend>eigen</build_depend>
+
+    <run_depend>roscpp</run_depend>
+    <run_depend>tf</run_depend>
+    <run_depend>costmap_2d</run_depend>
+    <run_depend>nav_core</run_depend>
+    <run_depend>pluginlib</run_depend>
+    <run_depend>eigen</run_depend>
+
+    <test_depend>rostest</test_depend>
+
+    <export>
+        <nav_core plugin="${prefix}/cs_plugin.xml" />
+    </export>
+</package>
+
+
