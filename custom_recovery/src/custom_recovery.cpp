@@ -59,6 +59,7 @@ void CustomRecovery::runBehavior(){
   ROS_WARN("Clearing costmap to unstuck robot (%fm).", reset_distance_);
   clear(global_costmap_);
   clear(local_costmap_);
+  sleep(1);
 }
 
 void CustomRecovery::clear(costmap_2d::Costmap2DROS* costmap){

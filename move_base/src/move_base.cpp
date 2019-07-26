@@ -55,7 +55,7 @@ namespace move_base {
     planner_plan_(NULL), latest_plan_(NULL), controller_plan_(NULL),
     runPlanner_(false), setup_(false), p_freq_change_(false), c_freq_change_(false), new_global_plan_(false) {
 
-    //创建actionlib服务器,绑定回调函数
+    //创建actionlib服务器,绑定回调函数。会订阅move_base/为前缀的goal，cancel等topic
     as_ = new MoveBaseActionServer(ros::NodeHandle(), "move_base", boost::bind(&MoveBase::executeCb, this, _1), false);
 
     ros::NodeHandle private_nh("~");
@@ -158,11 +158,11 @@ namespace move_base {
     controller_costmap_ros_->start();
 
     //advertise a service for getting a plan
-    //发布路径规划服务,等待被call
+    //发布路径规划服务,等待被call。查了整个包，都没看到哪里有调用这个服务，扎心了
     make_plan_srv_ = private_nh.advertiseService("make_plan", &MoveBase::planService, this);
 
     //advertise a service for clearing the costmaps
-    //发布清除costmap的服务,把全局和局部地图都清理掉
+    //发布清除costmap的服务,把全局和局部地图都清理掉.好像没那么简单呢
     clear_costmaps_srv_ = private_nh.advertiseService("clear_costmaps", &MoveBase::clearCostmapsService, this);
 
     //if we shutdown our costmaps when we're deactivated... we'll do that now
@@ -192,6 +192,18 @@ namespace move_base {
     dynamic_reconfigure::Server<move_base::MoveBaseConfig>::CallbackType cb = boost::bind(&MoveBase::reconfigureCB, this, _1, _2);
     dsrv_->setCallback(cb);
   }
+
+
+
+
+
+
+
+
+
+
+
+
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
     boost::recursive_mutex::scoped_lock l(configuration_mutex_);
@@ -224,6 +236,7 @@ namespace move_base {
       c_freq_change_ = true;
     }
 
+    //单次路径规划的时间，超时表示路径规划失败。这个时间随着地图变大可以修改一下的
     planner_patience_ = config.planner_patience;
     controller_patience_ = config.controller_patience;
     max_planning_retries_ = config.max_planning_retries;
@@ -284,6 +297,14 @@ namespace move_base {
     last_config_ = config;
   }
 
+
+
+
+
+
+
+
+  //rviz等发布的goal的回调函数，topic必须是move_base_simple/goal
   void MoveBase::goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
     ROS_DEBUG_NAMED("move_base","In ROS goal callback, wrapping the PoseStamped in the action message and re-sending to the server.");
     move_base_msgs::MoveBaseActionGoal action_goal;
@@ -293,11 +314,23 @@ namespace move_base {
     action_goal_pub_.publish(action_goal);
   }
 
-  //将地图的所有cost设置为free_space
+
+
+
+
+
+
+
+
+
+
+
+  //根据给定的参数，将全局和局部地图的部分区域的cost设置为free_space
   void MoveBase::clearCostmapWindows(double size_x, double size_y){
     tf::Stamped<tf::Pose> global_pose;
 
     //clear the planner's costmap
+    //使用全局planner得到机器人的位姿
     planner_costmap_ros_->getRobotPose(global_pose);
 
     std::vector<geometry_msgs::Point> clear_poly;
@@ -321,6 +354,7 @@ namespace move_base {
     pt.y = y + size_y / 2;
     clear_poly.push_back(pt);
 
+    //根据给定的x，y，将机器人为中心的矩形框的网格设置为free
     planner_costmap_ros_->getCostmap()->setConvexPolygonCost(clear_poly, costmap_2d::FREE_SPACE);
 
     //clear the controller's costmap
@@ -349,6 +383,7 @@ namespace move_base {
     controller_costmap_ros_->getCostmap()->setConvexPolygonCost(clear_poly, costmap_2d::FREE_SPACE);
   }
 
+  //没看懂，到底是干了啥
   bool MoveBase::clearCostmapsService(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp){
     //clear the costmaps
     boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock_controller(*(controller_costmap_ros_->getCostmap()->getMutex()));
@@ -359,6 +394,7 @@ namespace move_base {
     return true;
   }
 
+  //这个是自定义的，用来主动清除动态障碍物的，但是放在planner前面时，规划出的全局路径变成了直线了
   bool MoveBase::clearCostmap(){
     //clear the costmaps
     boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock_controller(*(controller_costmap_ros_->getCostmap()->getMutex()));
@@ -370,6 +406,16 @@ namespace move_base {
   }
 
 
+
+
+
+
+
+
+
+
+
+  //这个服务就是调用全局路径规划器，根据给定的起点和终点，规划出一条路径来
   bool MoveBase::planService(nav_msgs::GetPlan::Request &req, nav_msgs::GetPlan::Response &resp){
     if(as_->isActive()){
       ROS_ERROR("move_base must be in an inactive state to make a plan for an external user");
@@ -383,6 +429,7 @@ namespace move_base {
 
     geometry_msgs::PoseStamped start;
     //if the user does not specify a start pose, identified by an empty frame id, then use the robot's pose
+    //如果没有给定起始位置，则会已robot当前位置作为起始位置
     if(req.start.header.frame_id.empty())
     {
         tf::Stamped<tf::Pose> global_pose;
@@ -404,6 +451,7 @@ namespace move_base {
     //first try to make a plan to the exact desired goal
     //寻找路径,第一次先尝试规划,如果不成功,则
     std::vector<geometry_msgs::PoseStamped> global_plan;
+    //调用全局规划算法规划路径，如果规划失败，则会尝试搜索目标点附近的点，规划出一条可行的路径
     if(!planner_->makePlan(start, req.goal, global_plan) || global_plan.empty()){
       ROS_DEBUG_NAMED("move_base","Failed to find a plan to exact goal of (%.2f, %.2f), searching for a feasible goal within tolerance", 
           req.goal.pose.position.x, req.goal.pose.position.y);
@@ -492,9 +540,20 @@ namespace move_base {
     tc_.reset();
   }
 
+
+
+
+
+
+
+
+
+
+
   //根据goal,最后得到一个位姿的vector
+  //这个函数在planThread调用了，规划的是机器人当前位置到目标点的路径
   bool MoveBase::makePlan(const geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& plan){
-    //这个锁是哪个地方的锁
+    //这个锁是哪个地方的锁。这是个局部锁啊
     boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(planner_costmap_ros_->getCostmap()->getMutex()));
 
     //make sure to set the plan to be empty initially
@@ -525,6 +584,14 @@ namespace move_base {
 
     return true;
   }
+
+
+
+
+
+
+
+
 
   void MoveBase::publishZeroVelocity(){
     geometry_msgs::Twist cmd_vel;
@@ -568,7 +635,8 @@ namespace move_base {
   geometry_msgs::PoseStamped MoveBase::goalToGlobalFrame(const geometry_msgs::PoseStamped& goal_pose_msg){
     std::string global_frame = planner_costmap_ros_->getGlobalFrameID();
     tf::Stamped<tf::Pose> goal_pose, global_pose;
-    //将PoseStamped转成Stamped,因为tf的类型是stamped类型
+    //将PoseStamped转成Stamped,因为tf的类型是stamped<pose>类型
+    //tf::Pose就是tf::transform类，tf自然不能直接用pose，用的是变换矩阵
     poseStampedMsgToTF(goal_pose_msg, goal_pose);
 
     //just get the latest available transform... for accuracy they should send
@@ -598,6 +666,22 @@ namespace move_base {
     planner_cond_.notify_one();
   }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   //路径规划线程函数,在while循环里,使用线程的条件唤醒方式,进行一次次规划
   void MoveBase::planThread(){
     ROS_DEBUG_NAMED("move_base_plan_thread","Starting planner thread...");
@@ -607,8 +691,8 @@ namespace move_base {
     boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
     while(n.ok()){
       //check if we should run the planner (the mutex is locked)
-      //wait_for_wake只有在超过planner_frequency时才会置true。runPlanner表示正在执行当前规划工作
-      //当给定goal后,runplanner被置true,且palner_cond被唤醒,同时退出子while循环
+      //wait_for_wake只有设置planner_frequency时才会置true。即按固定频率去执行规划操作
+      //当没有新的规划任务的时候，runPlanner先被置false，阻塞等待被唤醒。整个线程不会往下执行，直到给了一个新目标后才会被唤醒
       while(wait_for_wake || !runPlanner_){
         //if we should not be running the planner then suspend this thread
         ROS_DEBUG_NAMED("move_base_plan_thread","Planner thread is suspending");
@@ -619,7 +703,7 @@ namespace move_base {
       ros::Time start_time = ros::Time::now();
 
       //time to plan! get a copy of the goal and unlock the mutex
-      //被唤醒后,goal肯定是被更新了
+      //planner_goal保存的是要去的目标点
       geometry_msgs::PoseStamped temp_goal = planner_goal_;
       lock.unlock();
       ROS_DEBUG_NAMED("move_base_plan_thread","Planning...");
@@ -629,7 +713,8 @@ namespace move_base {
       planner_plan_->clear();
       //clear map,感觉并没有用啊，没有clear
       // recovery_behaviors_[0]->runBehavior();
-      clearCostmap();
+      //不能放在全局路径规划前面，否则会导致清掉所有障碍物，生成的全局路径为直线
+      // clearCostmap();
       //实际上是调用global_planner的makePlan函数,一般global默认是Navfn/NavfnROS
       bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);
       //两种情况，1，路径规划成功，state设置为CONTROLLING. 2，上一次路径规划仍在执行中，state=PLANNING. state还有一种状态，就是clearing。
@@ -657,9 +742,10 @@ namespace move_base {
         lock.unlock();
       }
       //if we didn't get a plan and we are in the planning state (the robot isn't moving)
+      //如果仍在路径规划，则检查规划是否超时
       else if(state_==PLANNING){
         ROS_DEBUG_NAMED("move_base_plan_thread","No Plan...");
-        //这里设置路径规划的最长时间为5s,从上次路径规划完成开始计时
+        //默认设置全局路径规划的最长时间为5s,从上次路径规划完成开始计时
         ros::Time attempt_end = last_valid_plan_ + ros::Duration(planner_patience_);
 
         //check if we've tried to make a plan for over our time limit or our maximum number of retries
@@ -677,7 +763,7 @@ namespace move_base {
           publishZeroVelocity();
           recovery_trigger_ = PLANNING_R; //执行recovery操作，以便能够找到新的路径
         }
-
+        //这里不解锁也没关系，会自动解锁
         lock.unlock();
       }
 
@@ -696,19 +782,31 @@ namespace move_base {
     }
   }
 
+
+
+
+
+
+
+
+
+
+
+
   void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
-    //检查goal的合法性,如果不合法,actionServer则发送放弃的状态
+    //检查goal的是否有角度，没有角度则不执行
     if(!isQuaternionValid(move_base_goal->target_pose.pose.orientation)){
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
       return;
     }
-    //将goal换算为全局(map)坐标系下的坐标
+    //将goal换算为全局(map)坐标系下的坐标。也就是说，目标点的给定，可以不一定是map坐标系下的。感觉没多大用
     geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
 
     //we have a goal so start the planner
     boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
     planner_goal_ = goal;
+    //执行路径规划
     runPlanner_ = true;
     //在planThread里面,planner等待被唤醒,
     planner_cond_.notify_one();
@@ -718,7 +816,7 @@ namespace move_base {
     std::vector<geometry_msgs::PoseStamped> global_plan;
 
     //运动控制频率,默认设置为20HZ.这个频率是指的goal的检查更新频率.确认其是否已完成任务，或者是否又给了新的goal（如果有给新的，在while中执行新的goal）
-    //turtlebot的控制频率为5hz
+    //turtlebot的控制频率为5hz。可以不要给那么大的频率去检查，反而会增大计算量。
     ros::Rate r(controller_frequency_);
     //如果costmap关闭了.则重新打开
     if(shutdown_costmaps_){
@@ -746,8 +844,9 @@ namespace move_base {
         c_freq_change_ = false;
       }
 
-      //一个新的goal，状态被设置为ACTIVE，必须执行isPreemptRequested函数，使得new goal被占用。之前active goal的状态会被设置为PREEMPTED
+      //判断是否收到新目标或者取消目标等操作
       //如果没有收到新的goal msg，或cancel msg，那么如下这段代码就不会执行
+      //0723每收到一个目标，确保其没有被抢占。有点搞笑，新目标怎么可能被抢占呢？哦，这是在循环内，当来了一个新目标后，旧目标就被抢占了，就会执行此if语句
       if(as_->isPreemptRequested()){
         //如果收到一个新的goal，则按新的goal重新规划路径
         if(as_->isNewGoalAvailable()){
@@ -786,7 +885,7 @@ namespace move_base {
         //还有一种情况，同一个goal发布了多次，因为不是new goal，且之前有规划过了，那也可以重置状态机
         else {
           //if we've been preempted explicitly we need to shut things down
-          //中断planner线程,重启状态机为PLANNING,是否需要关闭costmap
+          //中断planner线程,重启状态机为PLANNING,是否需要关闭costmap。这里就用到的递归锁了
           resetState();
 
           //notify the ActionServer that we've successfully preempted
@@ -834,6 +933,7 @@ namespace move_base {
       bool done = executeCycle(goal, global_plan);
 
       //if we're done, then we'll return from execute
+      //如果到达目标点了，就退出此次action任务
       if(done)
         return;
 
@@ -844,6 +944,7 @@ namespace move_base {
 
       r.sleep();
       //make sure to sleep for the remainder of our cycle time
+      //当路径规划完成(进入controlling状态)时，检查循环时间是否超时，其实没事，不要在意
       if(r.cycleTime() > ros::Duration(1 / controller_frequency_) && state_ == CONTROLLING)
         ROS_WARN("Control loop missed its desired rate of %.4fHz... the loop actually took %.4f seconds", controller_frequency_, r.cycleTime().toSec());
     }
@@ -861,10 +962,36 @@ namespace move_base {
     return;
   }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   double MoveBase::distance(const geometry_msgs::PoseStamped& p1, const geometry_msgs::PoseStamped& p2)
   {
     return hypot(p1.pose.position.x - p2.pose.position.x, p1.pose.position.y - p2.pose.position.y);
   }
+
+
+
+
+
+
+
+
+
+
+
+
 
   //检查是否到达目标点。会检测move_base的状态机
   bool MoveBase::executeCycle(geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& global_plan){
@@ -898,6 +1025,7 @@ namespace move_base {
     }
 
     //check that the observation buffers for the costmap are current, we don't want to drive blind
+    //确保local_costMap的所有局部地图都更新了
     if(!controller_costmap_ros_->isCurrent()){
       ROS_WARN("[%s]:Sensor data is out of date, we're not going to allow commanding of the base for safety",ros::this_node::getName().c_str());
       publishZeroVelocity();
@@ -978,7 +1106,7 @@ namespace move_base {
           recovery_trigger_ = OSCILLATION_R;
         }
         
-        {
+        {//这里用了局部区域空间，自动释放锁
          boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(controller_costmap_ros_->getCostmap()->getMutex()));
         //局部规划，计算出执行速度并下发给底层驱动
         if(tc_->computeVelocityCommands(cmd_vel)){
@@ -990,18 +1118,20 @@ namespace move_base {
           if(recovery_trigger_ == CONTROLLING_R)
             recovery_index_ = 0;
         }
-        else {
+        else {//如果局部规划失败了，要么recovery，要么重新全局规划。我觉得小车recovery时重新全局规划就是不对的，走位不好看
           ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan.");
+          //局部规划时间默认是5s
           ros::Time attempt_end = last_valid_control_ + ros::Duration(controller_patience_);
 
           //check if we've tried to find a valid control for longer than our time limit
+          //如果是局部规划超时了，那么进入recovery
           if(ros::Time::now() > attempt_end){
             //we'll move into our obstacle clearing mode
             publishZeroVelocity();
             state_ = CLEARING;
             recovery_trigger_ = CONTROLLING_R;
           }
-          //控制时间没有超时，那么还会继续规划新的路径
+          //控制时间没有超时，那么进入全局规划
           else{
             //otherwise, if we can't find a valid control, we'll go back to planning
             last_valid_plan_ = ros::Time::now();
@@ -1012,6 +1142,7 @@ namespace move_base {
             //enable the planner thread in case it isn't running on a clock
             boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
             runPlanner_ = true;
+            //开启全局规划
             planner_cond_.notify_one();
             lock.unlock();
           }
@@ -1037,6 +1168,7 @@ namespace move_base {
           ROS_DEBUG_NAMED("move_base_recovery","Going back to planning state");
           last_valid_plan_ = ros::Time::now();
           planning_retries_ = 0;
+          //每次recovery后，都会重新执行一次全局规划
           state_ = PLANNING;
 
           //update the index of the next recovery behavior that we'll try
@@ -1082,6 +1214,23 @@ namespace move_base {
     return false;
   }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   //加载自己的recovery策略
   bool MoveBase::loadRecoveryBehaviors(ros::NodeHandle node){
     XmlRpc::XmlRpcValue behavior_list;
@@ -1089,8 +1238,10 @@ namespace move_base {
       if(behavior_list.getType() == XmlRpc::XmlRpcValue::TypeArray){
         for(int i = 0; i < behavior_list.size(); ++i){
           if(behavior_list[i].getType() == XmlRpc::XmlRpcValue::TypeStruct){
+            //包含name和type字段
             if(behavior_list[i].hasMember("name") && behavior_list[i].hasMember("type")){
               //check for recovery behaviors with the same name
+              //检查是否有相同名字的recovery
               for(int j = i + 1; j < behavior_list.size(); j++){
                 if(behavior_list[j].getType() == XmlRpc::XmlRpcValue::TypeStruct){
                   if(behavior_list[j].hasMember("name") && behavior_list[j].hasMember("type")){
@@ -1124,6 +1275,7 @@ namespace move_base {
             if(!recovery_loader_.isClassAvailable(behavior_list[i]["type"])){
               std::vector<std::string> classes = recovery_loader_.getDeclaredClasses();
               for(unsigned int i = 0; i < classes.size(); ++i){
+                //根据type，一个个加载
                 if(behavior_list[i]["type"] == recovery_loader_.getName(classes[i])){
                   //if we've found a match... we'll get the fully qualified name and break out of the loop
                   ROS_WARN("Recovery behavior specifications should now include the package name. You are using a deprecated API. Please switch from %s to %s in your yaml file.",

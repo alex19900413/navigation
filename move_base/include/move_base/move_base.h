@@ -221,6 +221,7 @@ namespace move_base {
       //set up the planner's Threadhread
       //当设置为true时，notify planThread执行规划线程
       bool runPlanner_;
+      //递归锁也是mutex的一种，防止进入死锁。如一个函数调用另一个函数，两个函数都用了mutex，则可能造成死锁
       boost::recursive_mutex planner_mutex_;
       boost::condition_variable_any planner_cond_;
       geometry_msgs::PoseStamped planner_goal_;
