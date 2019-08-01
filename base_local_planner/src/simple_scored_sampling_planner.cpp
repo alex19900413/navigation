@@ -81,6 +81,7 @@ namespace base_local_planner {
   bool SimpleScoredSamplingPlanner::findBestTrajectory(Trajectory& traj, std::vector<Trajectory>* all_explored) {
     Trajectory loop_traj;
     Trajectory best_traj;
+    //初始化为-1，为啥不也初始化为-7呢？
     double loop_traj_cost, best_traj_cost = -1;
     bool gen_success;
     int count, count_valid;

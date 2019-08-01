@@ -92,40 +92,55 @@ namespace base_local_planner {
       const costmap_2d::Costmap2D& costmap,
       const std::string& global_frame,
       std::vector<geometry_msgs::PoseStamped>& transformed_plan){
+    //保守操作，先清除
     transformed_plan.clear();
-
+    //检查是否有全局路径。global_plan是在啥时候更新的呢？在全局路径规划完成后，就会用setPlan传给局部规划器
     if (global_plan.empty()) {
       ROS_ERROR("Received plan with zero length");
       return false;
     }
-
+    //选择global_plan的第一个元素
     const geometry_msgs::PoseStamped& plan_pose = global_plan[0];
     try {
       // get plan_to_global_transform from plan frame to global_frame
       tf::StampedTransform plan_to_global_transform;
+      //接下两个tflistenner的函数，其实没多大用，本身global_plan就是在map坐标系下的，plan_pose又是global_plan的一个元素
+      //第五个参数是fixed_frame，都是基于此frame的时间来作为时间线，计算timeout等
       tf.waitForTransform(global_frame, ros::Time::now(),
                           plan_pose.header.frame_id, plan_pose.header.stamp,
                           plan_pose.header.frame_id, ros::Duration(0.5));
+      //得到局部到全局的一个变换关系。其实就是同一个坐标系嘛，真的是
       tf.lookupTransform(global_frame, ros::Time(),
                          plan_pose.header.frame_id, plan_pose.header.stamp, 
                          plan_pose.header.frame_id, plan_to_global_transform);
 
       //let's get the pose of the robot in the frame of the plan
       tf::Stamped<tf::Pose> robot_pose;
+      //把机器人全局当前位姿，转为局部坐标系下位姿。这不还是map坐标系下的吗？
       tf.transformPose(plan_pose.header.frame_id, global_pose, robot_pose);
 
+      /*
+      *
+      * 前面做了那么多工作，就是为了得到robot_pose，很奇怪，不能直接调用全局costmap来获得当前机器人位姿吗？
+      * 
+      * */
+
       //we'll discard points on the plan that are outside the local costmap
+      //只考虑costmap里面的路径点。那么如果我把costmap搞小一点呢？
       double dist_threshold = std::max(costmap.getSizeInCellsX() * costmap.getResolution() / 2.0,
                                        costmap.getSizeInCellsY() * costmap.getResolution() / 2.0);
 
       unsigned int i = 0;
+      //这个不是对角线的值哈，所以costmap搜索的是一个内切圆的范围
       double sq_dist_threshold = dist_threshold * dist_threshold;
       double sq_dist = 0;
 
       //we need to loop to a point on the plan that is within a certain distance of the robot
+      //这里是找到一个在costmap的内切圆里的一个局部目标点
       while(i < (unsigned int)global_plan.size()) {
         double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
         double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
+        //这个又是欧式距离
         sq_dist = x_diff * x_diff + y_diff * y_diff;
         if (sq_dist <= sq_dist_threshold) {
           break;
@@ -137,6 +152,7 @@ namespace base_local_planner {
       geometry_msgs::PoseStamped newer_pose;
 
       //now we'll transform until points are outside of our distance threshold
+      //把costmap范围内的路径点都保存到transformed_plan中
       while(i < (unsigned int)global_plan.size() && sq_dist <= sq_dist_threshold) {
         const geometry_msgs::PoseStamped& pose = global_plan[i];
         poseStampedMsgToTF(pose, tf_pose);
@@ -246,6 +262,7 @@ namespace base_local_planner {
     return false;
   }
 
+  //检查小车的角速度和线速度是否小于最小停止速度
   bool stopped(const nav_msgs::Odometry& base_odom, 
       const double& rot_stopped_velocity, const double& trans_stopped_velocity){
     return fabs(base_odom.twist.twist.angular.z) <= rot_stopped_velocity 

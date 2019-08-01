@@ -58,6 +58,8 @@ void SimpleTrajectoryGenerator::initialise(
 }
 
 
+
+//初始化的是这个函数
 void SimpleTrajectoryGenerator::initialise(
     const Eigen::Vector3f& pos,
     const Eigen::Vector3f& vel,
@@ -86,6 +88,7 @@ void SimpleTrajectoryGenerator::initialise(
 
   // if sampling number is zero in any dimension, we don't generate samples generically
   if (vsamples[0] * vsamples[1] * vsamples[2] > 0) {
+    //所以这里y方向的样本数也不能为0
     //compute the feasible velocity space based on the rate at which we run
     Eigen::Vector3f max_vel = Eigen::Vector3f::Zero();
     Eigen::Vector3f min_vel = Eigen::Vector3f::Zero();
@@ -123,6 +126,7 @@ void SimpleTrajectoryGenerator::initialise(
     VelocityIterator x_it(min_vel[0], max_vel[0], vsamples[0]);
     VelocityIterator y_it(min_vel[1], max_vel[1], vsamples[1]);
     VelocityIterator th_it(min_vel[2], max_vel[2], vsamples[2]);
+    //速度采样
     for(; !x_it.isFinished(); x_it++) {
       vel_samp[0] = x_it.getVelocity();
       for(; !y_it.isFinished(); y_it++) {

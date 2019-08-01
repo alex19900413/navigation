@@ -152,6 +152,7 @@ void ClearCostmapRecovery::clearMap(boost::shared_ptr<costmap_2d::CostmapLayer> 
 
   double ox = costmap->getOriginX(), oy = costmap->getOriginY();
   double width = costmap->getSizeInMetersX(), height = costmap->getSizeInMetersY();
+  //添加一个bounding box，目的是给obstacle_layer去update用的
   costmap->addExtraBounds(ox, oy, ox + width, oy + height);
   return;
 }

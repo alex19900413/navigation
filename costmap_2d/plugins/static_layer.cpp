@@ -81,6 +81,7 @@ void StaticLayer::onInitialize()
   unknown_cost_value_ = temp_unknown_cost_value;
 
   // Only resubscribe if topic has changed
+  //一开始没有订阅任何地图，所以这里会先订阅
   if (map_sub_.getTopic() != ros::names::resolve(map_topic))
   {
     // we'll subscribe to the latched topic that the map server uses
@@ -98,6 +99,7 @@ void StaticLayer::onInitialize()
 
     ROS_INFO("Received a %d X %d map at %f m/pix", getSizeInCellsX(), getSizeInCellsY(), getResolution());
 
+    //这里跟上面订阅到map有啥区别呢？
     if (subscribe_to_updates_)
     {
       ROS_INFO("Subscribing to updates");
@@ -163,6 +165,7 @@ unsigned char StaticLayer::interpretValue(unsigned char value)
 
 void StaticLayer::incomingMap(const nav_msgs::OccupancyGridConstPtr& new_map)
 {
+  //地图的长宽
   unsigned int size_x = new_map->info.width, size_y = new_map->info.height;
 
   ROS_DEBUG("Received a %d X %d map at %f m/pix", size_x, size_y, new_map->info.resolution);
@@ -195,6 +198,7 @@ void StaticLayer::incomingMap(const nav_msgs::OccupancyGridConstPtr& new_map)
   unsigned int index = 0;
 
   // initialize the costmap with static data
+  //地图是用一个数组来保存的
   for (unsigned int i = 0; i < size_y; ++i)
   {
     for (unsigned int j = 0; j < size_x; ++j)

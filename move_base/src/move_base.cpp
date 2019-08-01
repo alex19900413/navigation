@@ -1374,6 +1374,7 @@ namespace move_base {
     //if we shutdown our costmaps when we're deactivated... we'll do that now
     if(shutdown_costmaps_){
       ROS_DEBUG_NAMED("move_base","Stopping costmaps");
+      //表示不在订阅传感器信息去更新了
       planner_costmap_ros_->stop();
       controller_costmap_ros_->stop();
     }

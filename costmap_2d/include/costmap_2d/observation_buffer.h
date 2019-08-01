@@ -147,17 +147,25 @@ private:
    */
   void purgeStaleObservations();
 
+  //用来将传感器数据转换到map坐标系
   tf::TransformListener& tf_;
+  //observation_list中保留的历史数据的时间段。如果为0，则表示只保存一次最近观测到的数据
   const ros::Duration observation_keep_time_;
+  //用于检查sensor的observation是否按其期望的频率返回数据，如果不想检查，则设置为0
   const ros::Duration expected_update_rate_;
   ros::Time last_updated_;
   std::string global_frame_;
   std::string sensor_frame_;
+  //保存观测数据，其中Observation保存单次观测的数据
   std::list<Observation> observation_list_;
+  //订阅的sensor_topic
   std::string topic_name_;
+  //用于多线雷达吧。或者深度相机
   double min_obstacle_height_, max_obstacle_height_;
+  //递归锁能够解决死锁的问题，但是同样可能引入其他问题
   boost::recursive_mutex lock_;  ///< @brief A lock for accessing data in callbacks safely
   double obstacle_range_, raytrace_range_;
+  //这个一般是用于waitforTransform的block时间
   double tf_tolerance_;
 };
 }  // namespace costmap_2d

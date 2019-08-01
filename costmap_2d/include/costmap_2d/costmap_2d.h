@@ -59,6 +59,7 @@ struct MapLocation
  */
 class Costmap2D
 {
+  //友元类，表示CostmapTester可以调用此类Costmap2D的私有和受保护的成员
   friend class CostmapTester;  // Need this for gtest to work correctly
 public:
   /**
@@ -181,6 +182,7 @@ public:
    */
   inline void indexToCells(unsigned int index, unsigned int& mx, unsigned int& my) const
   {
+    //这里有问题吧，应该是my = （index -mx ）/ size_x
     my = index / size_x_;
     mx = index - (my * size_x_);
   }
@@ -248,6 +250,7 @@ public:
    * @param polygon The polygon to perform the operation on
    * @param cost_value The value to set costs to
    * @return True if the polygon was filled... false if it could not be filled
+   * 这个函数就是用来设置机器人形状的cost为free
    */
   bool setConvexPolygonCost(const std::vector<geometry_msgs::Point>& polygon, unsigned char cost_value);
 
@@ -260,6 +263,7 @@ public:
 
   /**
    * @brief  Get the map cells that fill a convex polygon
+   * 就是根据给定的polygon，将其包围的网格填充到polygon_cells中
    * @param polygon The polygon in map coordinates to rasterize
    * @param polygon_cells Will be set to the cells that fill the polygon
    */

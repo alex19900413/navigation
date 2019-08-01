@@ -91,6 +91,9 @@ namespace dwa_local_planner {
 
   }
 
+
+
+
   //第三个参数是经ros封装的地图类型
   void DWAPlannerROS::initialize(
       std::string name,
@@ -152,6 +155,7 @@ namespace dwa_local_planner {
       return false;
     }
 
+    //检测位置和角度是否都到达了目标点
     if(latchedStopRotateController_.isGoalReached(&planner_util_, odom_helper_, current_pose_)) {
       ROS_INFO("Goal reached");
       return true;
@@ -191,8 +195,9 @@ namespace dwa_local_planner {
       return false;
     }
 
-    //明明是个位姿，不知道为啥命名为vel
+    //这里没看懂
     tf::Stamped<tf::Pose> robot_vel;
+    //得到的是一个由速度算出来的tf,这个stamped对象的frame_id是base_link
     odom_helper_.getRobotVel(robot_vel);
 
     /* For timing uncomment
@@ -203,6 +208,7 @@ namespace dwa_local_planner {
 
     //compute what trajectory to drive along
     tf::Stamped<tf::Pose> drive_cmds;
+    //base_link
     drive_cmds.frame_id_ = costmap_ros_->getBaseFrameID();
     
     // call with updated footprint
@@ -224,7 +230,9 @@ namespace dwa_local_planner {
     cmd_vel.angular.z = tf::getYaw(drive_cmds.getRotation());
 
     //if we cannot move... tell someone
+    //不管如何，把local_plan发布出来
     std::vector<geometry_msgs::PoseStamped> local_plan;
+    //如果不能找到一条路径，则返回false
     if(path.cost_ < 0) {
       ROS_DEBUG_NAMED("dwa_local_planner",
           "The dwa local planner failed to find a valid plan, cost functions discarded all candidates. This can mean there is an obstacle too close to the robot.");
@@ -237,17 +245,19 @@ namespace dwa_local_planner {
                     cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z);
 
     // Fill out the local plan
+    //把找到的路径点，填充成PoseStamped类型保存起来
     for(unsigned int i = 0; i < path.getPointsSize(); ++i) {
       double p_x, p_y, p_th;
       path.getPoint(i, p_x, p_y, p_th);
 
       tf::Stamped<tf::Pose> p =
-              tf::Stamped<tf::Pose>(tf::Pose(
+              tf::Stamped<tf::Pose>(tf::Pose( //根据点坐标，先转换为tf::Pose，因为要将角度转化为四元素，还真得用tf的函数，没办法
                       tf::createQuaternionFromYaw(p_th),
                       tf::Point(p_x, p_y, 0.0)),
                       ros::Time::now(),
                       costmap_ros_->getGlobalFrameID());
       geometry_msgs::PoseStamped pose;
+      //再把tf::pose转换为PoseStamped类型
       tf::poseStampedTFToMsg(p, pose);
       local_plan.push_back(pose);
     }
@@ -272,6 +282,7 @@ namespace dwa_local_planner {
       ROS_ERROR("Could not get robot pose");
       return false;
     }
+    //局部路径
     std::vector<geometry_msgs::PoseStamped> transformed_plan;
     //根据当前位姿,得到global plan在local坐标系下的transformed_plan,用于局部规划控制
     if ( ! planner_util_.getLocalPlan(current_pose_, transformed_plan)) {
@@ -287,10 +298,11 @@ namespace dwa_local_planner {
     ROS_DEBUG_NAMED("dwa_local_planner", "Received a transformed plan with %zu points.", transformed_plan.size());
 
     // update plan in dwa_planner even if we just stop and rotate, to allow checkTrajectory
-    //感觉是初始化costFunction的意思
+    //初始化后一些cost方法
     dp_->updatePlanAndLocalCosts(current_pose_, transformed_plan, costmap_ros_->getRobotFootprint());
 
     //如果到达goal position ,就停止路径规划，cmd_vel的速度为0
+    //这里是检测位置是否到达目标点，没检测角度
     if (latchedStopRotateController_.isPositionReached(&planner_util_, current_pose_)) {
       //publish an empty plan because we've reached our goal position
       std::vector<geometry_msgs::PoseStamped> local_plan;
@@ -299,6 +311,7 @@ namespace dwa_local_planner {
       publishGlobalPlan(transformed_plan);
       publishLocalPlan(local_plan);
       base_local_planner::LocalPlannerLimits limits = planner_util_.getCurrentLimits();
+      //如果到达目标点，则检验角度是否也已经到达指定的角度
       return latchedStopRotateController_.computeVelocityCommandsStopRotate(
           cmd_vel,
           limits.getAccLimits(),

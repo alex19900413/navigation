@@ -48,6 +48,7 @@ using namespace std;
 namespace costmap_2d
 {
 
+//检测原句柄是否包含此参数，如果包含，则将此参数复制给新的节点句柄，否则啥都不做
 void move_parameter(ros::NodeHandle& old_h, ros::NodeHandle& new_h, std::string name, bool should_delete = true)
 {
   if (!old_h.hasParam(name))
@@ -80,7 +81,8 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   old_pose_.setIdentity();
   old_pose_.setOrigin(tf::Vector3(1e30, 1e30, 1e30));
 
-  //move_base/name, 这里使用了私有命名空间
+  //move_base/name, 这里使用了私有命名空间。在move_base的launch文件中，给其加了global_costmap或local_costmap的前缀(对应这里的name)
+  //这个命名空间的参数，定义在costmap_common_params.yaml中
   ros::NodeHandle private_nh("~/" + name);
   ros::NodeHandle g_nh;
 
@@ -88,6 +90,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   //这个节点又没初始化, 得到的前缀是啥?应该是空的
   //根据getPrefixParam函数, 需要找"tf_prefix"的参数,如果没有找到,则返回空字符,一般没有定义,所以为空
   ros::NodeHandle prefix_nh;
+  //就是获取当前节点句柄的命名空间，这里应该是/move_base/name/,name是实例化的时候给定的
   std::string tf_prefix = tf::getPrefixParam(prefix_nh);
 
   // get two frames
@@ -95,7 +98,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   private_nh.param("robot_base_frame", robot_base_frame_, std::string("base_link"));
 
   // make sure that we set the frames appropriately based on the tf_prefix
-  //resolve函数,当有前缀时,加上前缀. 没有前缀, 所以frame还是不变
+  //resolve函数,当有前缀时,加上前缀. 没有前缀, 所以frame还是不变。这里是有前缀的
   global_frame_ = tf::resolve(tf_prefix, global_frame_);
   robot_base_frame_ = tf::resolve(tf_prefix, robot_base_frame_);
 
@@ -127,13 +130,15 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   private_nh.param("always_send_full_costmap", always_send_full_costmap, false);
 
   //track_unkown_space设置为true, 全局规划器就不会在未知区域规划路径
-  //这个成员非常有用, 用来加载地图
+  //这个成员(包工头)非常有用, 用来加载地图
   //rolling_window为true的话, 地图会随着机器人位姿滚动(local_costmap会以机器人为中心)
   layered_costmap_ = new LayeredCostmap(global_frame_, rolling_window, track_unknown_space);
 
   //通过插件加载地图.plugins参数,必须得通过xml文件设置.参考clear_costmap_recovery/test/params.yaml
+  //如果没有指定plugins，则会创建相关的plugin。显然是有指定的
   if (!private_nh.hasParam("plugins"))
   {
+    //这个函数，有点像是更新插件的意思，转换成XmlRpc的格式，方便下面加载插件
     resetOldParameters(private_nh);
   }
 
@@ -148,14 +153,14 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
     private_nh.getParam("plugins", my_list);
     for (int32_t i = 0; i < my_list.size(); ++i)
     {
-      std::string pname = static_cast<std::string>(my_list[i]["name"]);
-      std::string type = static_cast<std::string>(my_list[i]["type"]);
+      std::string pname = static_cast<std::string>(my_list[i]["name"]);//比如obstacle_layer
+      std::string type = static_cast<std::string>(my_list[i]["type"]);//比如costmap_2d::VoxelLayer
       ROS_INFO("Using plugin \"%s\"", pname.c_str());
 
       //返回插件对象的指针, plugin是根据type不同而得到的插件
       boost::shared_ptr<Layer> plugin = plugin_loader_.createInstance(type);
       layered_costmap_->addPlugin(plugin);
-      //调用各地图的onInitialize函数
+      //调用各类型地图的onInitialize函数.此函数定义在layer中，被costmap_layer继承，最后被其他应用layer继承
       plugin->initialize(layered_costmap_, name + "/" + pname, &tf_);
     }
   }
@@ -201,7 +206,8 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   timer_ = private_nh.createTimer(ros::Duration(.1), &Costmap2DROS::movementCB, this);
 
   dsrv_ = new dynamic_reconfigure::Server<Costmap2DConfig>(ros::NodeHandle("~/" + name));
-  //构造函数初始化结束的时候, 开启了一个线程来updateMap
+  //构造函数初始化结束的时候, 开启了一个线程来updateMap.
+  //这里的参数，都跟name有关，即如果name是global_planner，那么调用的都是global_planner下的参数
   dynamic_reconfigure::Server<Costmap2DConfig>::CallbackType cb = boost::bind(&Costmap2DROS::reconfigureCB, this, _1,
                                                                               _2);
   dsrv_->setCallback(cb);
@@ -227,6 +233,7 @@ Costmap2DROS::~Costmap2DROS()
   delete dsrv_;
 }
 
+
 void Costmap2DROS::resetOldParameters(ros::NodeHandle& nh)
 {
   ROS_INFO("Loading from pre-hydro parameter style");
@@ -236,10 +243,13 @@ void Costmap2DROS::resetOldParameters(ros::NodeHandle& nh)
 
   XmlRpc::XmlRpcValue::ValueStruct map;
   SuperValue super_map;
+  //这是默认构造的plugins
   SuperValue super_array;
 
+  //如果存在static_map参数，就构造一个static_layer，下同
   if (nh.getParam("static_map", flag) && flag)
   {
+    //构造一个static_layer的plugin
     map["name"] = XmlRpc::XmlRpcValue("static_layer");
     map["type"] = XmlRpc::XmlRpcValue("costmap_2d::StaticLayer");
     super_map.setStruct(&map);
@@ -319,6 +329,7 @@ void Costmap2DROS::reconfigureCB(costmap_2d::Costmap2DConfig &config, uint32_t l
     publish_cycle = ros::Duration(-1);
 
   // find size parameters
+  //local_costmap就是通过修改地图的宽度和高度，来调整costmap的大小的
   double map_width_meters = config.width, map_height_meters = config.height, resolution = config.resolution, origin_x =
              config.origin_x,
          origin_y = config.origin_y;
@@ -427,9 +438,11 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
   {
     struct timeval start, end;
     double start_t, end_t, t_diff;
+    //这个计时的函数挺好用，很简单
     gettimeofday(&start, NULL);
 
     //核心在这个函数里的,layered_costmap_->updateMap(x,y,yaw)
+    //同时也会更新边界值
     updateMap();
 
     gettimeofday(&end, NULL);
@@ -441,12 +454,13 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
     {
       unsigned int x0, y0, xn, yn;
       layered_costmap_->getBounds(&x0, &xn, &y0, &yn);
+      //更新边界
       publisher_->updateBounds(x0, xn, y0, yn);
 
       ros::Time now = ros::Time::now();
       if (last_publish_ + publish_cycle < now)
       {
-        //发布更新后的地图,发布costmap_updates话题, rviz有订阅, 但是没找到
+        //发布更新后的地图,发布命名空间/costmpa话题,就是发布地图.可以被rviz等订阅
         publisher_->publishCostmap();
         last_publish_ = now;
       }
@@ -561,6 +575,7 @@ void Costmap2DROS::resetLayers()
 //难道是因为tf变换关系,有一直在更新吗?  是的, 里程计会一直在更新
 bool Costmap2DROS::getRobotPose(tf::Stamped<tf::Pose>& global_pose) const
 {
+  //先清零
   global_pose.setIdentity();
   tf::Stamped < tf::Pose > robot_pose;
   robot_pose.setIdentity();
@@ -571,6 +586,7 @@ bool Costmap2DROS::getRobotPose(tf::Stamped<tf::Pose>& global_pose) const
   // get the global pose of the robot
   try
   {
+    //tf求坐标变换，只需要知道其中一个对象的时间和frame_id即可，而不需要知道其位姿
     tf_.transformPose(global_frame_, robot_pose, global_pose);
   }
   catch (tf::LookupException& ex)

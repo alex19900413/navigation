@@ -131,6 +131,7 @@ void map_draw_wifi(map_t *map, struct _rtk_fig_t *fig, int index);
  **************************************************************************/
 
 // Convert from map index to world coords
+//因为amcl中已经把map的坐标原点移到了中心点处了
 #define MAP_WXGX(map, i) (map->origin_x + ((i) - map->size_x / 2) * map->scale)
 #define MAP_WYGY(map, j) (map->origin_y + ((j) - map->size_y / 2) * map->scale)
 

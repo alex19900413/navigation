@@ -63,6 +63,7 @@ ObservationBuffer::~ObservationBuffer()
 {
 }
 
+//扎心了，这个函数竟然没有被使用过。就是把传感器数据，全部转换到给定坐标系下
 bool ObservationBuffer::setGlobalFrame(const std::string new_global_frame)
 {
   ros::Time transform_time = ros::Time::now();
@@ -220,6 +221,7 @@ void ObservationBuffer::purgeStaleObservations()
   {
     list<Observation>::iterator obs_it = observation_list_.begin();
     // if we're keeping observations for no time... then we'll only keep one observation
+    //设置为0，即不保留之前观测的数据，observation_list只保留当场观测数据
     if (observation_keep_time_ == ros::Duration(0.0))
     {
       observation_list_.erase(++obs_it, observation_list_.end());
@@ -227,6 +229,7 @@ void ObservationBuffer::purgeStaleObservations()
     }
 
     // otherwise... we'll have to loop through the observations to see which ones are stale
+    //如果保留之前的数据，那么根据保留的时间，将超过这个时间的数据删除掉
     for (obs_it = observation_list_.begin(); obs_it != observation_list_.end(); ++obs_it)
     {
       Observation& obs = *obs_it;
@@ -241,6 +244,7 @@ void ObservationBuffer::purgeStaleObservations()
   }
 }
 
+//检查该topic是否按其设定的频率在更新
 bool ObservationBuffer::isCurrent() const
 {
   if (expected_update_rate_ == ros::Duration(0.0))

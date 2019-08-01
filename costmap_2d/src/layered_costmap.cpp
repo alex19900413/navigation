@@ -91,7 +91,12 @@ void LayeredCostmap::resizeMap(unsigned int size_x, unsigned int size_y, double 
     (*plugin)->matchSize();
   }
 }
-//每个layer的onInitLayer函数里,dy_cb新建的线程中,都会调用此函数进行更新
+
+
+
+
+//每个layer的onInitLayer函数里,dy_cb新建的线程中,都会调用此函数进行更新.当然了，参数更新了，地图也会更新
+//
 void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 {
   // Lock for the remainder of this function, some plugins (e.g. VoxelLayer)
@@ -99,6 +104,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
   boost::unique_lock<Costmap2D::mutex_t> lock(*(costmap_.getMutex()));
 
   // if we're using a rolling buffer costmap... we need to update the origin using the robot's position
+  //只有obstacle_layer才会有这个参数,voxel_layer因为继承前者也会有
   if (rolling_window_)
   {
     double new_origin_x = robot_x - costmap_.getSizeInMetersX() / 2;
@@ -108,7 +114,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 
   if (plugins_.size() == 0)
     return;
-
+  //这个值给的很奇怪嘛，而且只能在clear_costmap_recovery才可以修改
   minx_ = miny_ = 1e30;
   maxx_ = maxy_ = -1e30;
 
@@ -120,7 +126,9 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     double prev_miny = miny_;
     double prev_maxx = maxx_;
     double prev_maxy = maxy_;
+    //更新地图边界
     (*plugin)->updateBounds(robot_x, robot_y, robot_yaw, &minx_, &miny_, &maxx_, &maxy_);
+    //边界判断，不允许边界缩小？
     if (minx_ > prev_minx || miny_ > prev_miny || maxx_ < prev_maxx || maxy_ < prev_maxy)
     {
       ROS_WARN_THROTTLE(1.0, "Illegal bounds change, was [tl: (%f, %f), br: (%f, %f)], but "
@@ -131,7 +139,9 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     }
   }
 
+  //获得地图的新边界
   int x0, xn, y0, yn;
+  //
   costmap_.worldToMapEnforceBounds(minx_, miny_, x0, y0);
   costmap_.worldToMapEnforceBounds(maxx_, maxy_, xn, yn);
 
@@ -145,6 +155,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
   if (xn < x0 || yn < y0)
     return;
 
+  //重新更新地图大小
   costmap_.resetMap(x0, y0, xn, yn);
   //执行updateCosts
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
@@ -153,6 +164,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     (*plugin)->updateCosts(costmap_, x0, y0, xn, yn);
   }
 
+  //保存更新的边界，给下次更新使用
   bx0_ = x0;
   bxn_ = xn;
   by0_ = y0;

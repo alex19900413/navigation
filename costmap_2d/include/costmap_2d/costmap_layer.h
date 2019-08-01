@@ -39,6 +39,7 @@
 #define COSTMAP_2D_COSTMAP_LAYER_H_
 #include <ros/ros.h>
 #include <costmap_2d/layer.h>
+//这里包含了头文件，但是并没有用到啊
 #include <costmap_2d/layered_costmap.h>
 
 namespace costmap_2d

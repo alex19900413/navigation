@@ -44,6 +44,7 @@ using namespace costmap_2d;
 namespace base_local_planner {
   CostmapModel::CostmapModel(const Costmap2D& ma) : costmap_(ma) {}
 
+  //在world_model中被调用
   double CostmapModel::footprintCost(const geometry_msgs::Point& position, const std::vector<geometry_msgs::Point>& footprint, 
       double inscribed_radius, double circumscribed_radius){
 

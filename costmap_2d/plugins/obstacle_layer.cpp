@@ -53,11 +53,15 @@ namespace costmap_2d
 
 void ObstacleLayer::onInitialize()
 {
+  //这里这么做，就是为了将命名空间改成指定的name_空间。name_在layered_costmap的initialize函数中指定
+  //下面的这些参数，都是在这个命名空间下的。在launch文件中，local_costmap和global_costmap的命名空间，都会加载common_costmap_params.yaml文件
   ros::NodeHandle nh("~/" + name_), g_nh;
   rolling_window_ = layered_costmap_->isRolling();
 
+  //当global planning穿过unknown_space时，不允许其生成路径
   bool track_unknown_space;
   nh.param("track_unknown_space", track_unknown_space, layered_costmap_->isTrackingUnknown());
+  //根据设置，改变默认值的类型
   if (track_unknown_space)
     default_value_ = NO_INFORMATION;
   else
@@ -67,6 +71,7 @@ void ObstacleLayer::onInitialize()
   current_ = true;
 
   global_frame_ = layered_costmap_->getGlobalFrameID();
+  //waitforTf的block时间，超过这个时间监听不到tf变换则报错
   double transform_tolerance;
   nh.param("transform_tolerance", transform_tolerance, 0.2);
 
@@ -76,11 +81,12 @@ void ObstacleLayer::onInitialize()
   nh.param("observation_sources", topics_string, std::string(""));
   ROS_INFO("    Subscribed to Topics: %s", topics_string.c_str());
 
-  // get our tf prefix
+  // get our tf prefix，当前命名空间可以为：/move_base/local_costmap/obstacle_layer/
   ros::NodeHandle prefix_nh;
   const std::string tf_prefix = tf::getPrefixParam(prefix_nh);
 
   // now we need to split the topics based on whitespace which we can use a stringstream for
+  //所以，如果要加其他传感器的数据，在这里加就好了，用空格隔开。且每个传感器，都得指定相关参数
   std::stringstream ss(topics_string);
 
   std::string source;
@@ -95,13 +101,16 @@ void ObstacleLayer::onInitialize()
     std::string topic, sensor_frame, data_type;
     bool inf_is_valid, clearing, marking;
 
+    //如果不给定，默认值就是对应的传感器名字
     source_node.param("topic", topic, source);
     source_node.param("sensor_frame", sensor_frame, std::string(""));   //可不设置, 因为scan msg中会有包含的
+    //0表示只保留当次的数据
     source_node.param("observation_persistence", observation_keep_time, 0.0);
     source_node.param("expected_update_rate", expected_update_rate, 0.0);
     source_node.param("data_type", data_type, std::string("PointCloud"));
     source_node.param("min_obstacle_height", min_obstacle_height, 0.0);
     source_node.param("max_obstacle_height", max_obstacle_height, 2.0);
+    //如果设置为true，则inf值会被设置为最大距离
     source_node.param("inf_is_valid", inf_is_valid, false);
     source_node.param("clearing", clearing, false);
     source_node.param("marking", marking, true);  //是否标记障碍物
@@ -111,6 +120,7 @@ void ObstacleLayer::onInitialize()
       sensor_frame = tf::resolve(tf_prefix, sensor_frame);
     }
 
+    //只有点云类型的数据才能够被使用
     if (!(data_type == "PointCloud2" || data_type == "PointCloud" || data_type == "LaserScan"))
     {
       ROS_FATAL("Only topics that use point clouds or laser scans are currently supported");
@@ -140,13 +150,12 @@ void ObstacleLayer::onInitialize()
     // create an observation buffer
     //有个专门的observationBuffer类,用来保存激光雷达/点云数据
     observation_buffers_.push_back(
-        boost::shared_ptr < ObservationBuffer
-            > (new ObservationBuffer(topic, observation_keep_time, expected_update_rate, min_obstacle_height,
+        boost::shared_ptr < ObservationBuffer> (new ObservationBuffer(topic, observation_keep_time, expected_update_rate, min_obstacle_height,
                                      max_obstacle_height, obstacle_range, raytrace_range, *tf_, global_frame_,
                                      sensor_frame, transform_tolerance)));
 
     // check if we'll add this buffer to our marking observation buffers
-    //true
+    //true，默认要标记障碍物。把激光雷达扫到的点，都保存到marking_buffers这个列表中去
     if (marking)
       marking_buffers_.push_back(observation_buffers_.back());
 
@@ -161,7 +170,7 @@ void ObstacleLayer::onInitialize()
         source.c_str(), topic.c_str(), global_frame_.c_str(), expected_update_rate, observation_keep_time);
 
     // create a callback for the topic
-    //目前只有laserscan
+    //目前只有laserscan，后续是不是可以添加红外，超声波？这些都是sensor_msgs/Range类型的，这里显然没有。没关系，有专门的range_layer
     if (data_type == "LaserScan")
     {
       boost::shared_ptr < message_filters::Subscriber<sensor_msgs::LaserScan>
@@ -204,7 +213,7 @@ void ObstacleLayer::onInitialize()
       observation_subscribers_.push_back(sub);
       observation_notifiers_.push_back(filter);
     }
-    else
+    else//datatype是PointCloud2类型的
     {
       boost::shared_ptr < message_filters::Subscriber<sensor_msgs::PointCloud2>
           > sub(new message_filters::Subscriber<sensor_msgs::PointCloud2>(g_nh, topic, 50));
@@ -236,6 +245,20 @@ void ObstacleLayer::onInitialize()
   setupDynamicReconfigure(nh);
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 void ObstacleLayer::setupDynamicReconfigure(ros::NodeHandle& nh)
 {
   dsrv_ = new dynamic_reconfigure::Server<costmap_2d::ObstaclePluginConfig>(nh);
@@ -256,6 +279,15 @@ void ObstacleLayer::reconfigureCB(costmap_2d::ObstaclePluginConfig &config, uint
   max_obstacle_height_ = config.max_obstacle_height;
   combination_method_ = config.combination_method;
 }
+
+
+
+
+
+
+
+
+
 
 void ObstacleLayer::laserScanCallback(const sensor_msgs::LaserScanConstPtr& message,
                                       const boost::shared_ptr<ObservationBuffer>& buffer)
@@ -320,6 +352,7 @@ void ObstacleLayer::laserScanValidInfCallback(const sensor_msgs::LaserScanConstP
   buffer->unlock();
 }
 
+
 void ObstacleLayer::pointCloudCallback(const sensor_msgs::PointCloudConstPtr& message,
                                                const boost::shared_ptr<ObservationBuffer>& buffer)
 {
@@ -346,7 +379,14 @@ void ObstacleLayer::pointCloud2Callback(const sensor_msgs::PointCloud2ConstPtr& 
   buffer->unlock();
 }
 
-//根据测量数据完成clear操作之后, 就开始mark操作, 对每个测量的点,标记为obstacle
+
+
+
+
+//更新地图的边界
+//根据测量数据完成clear操作之后, 就开始mark操作, 对每个测量的点,标记为obstacle.
+//在layered_costmap这个包工头的update函数中执行
+//再往前追溯，那就是costmap_2d_ros中的update 线程函数里，定时去更新地图
 void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x,
                                           double* min_y, double* max_x, double* max_y)
 {
@@ -354,18 +394,20 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
     updateOrigin(robot_x - getSizeInMetersX() / 2, robot_y - getSizeInMetersY() / 2);
   if (!enabled_)
     return;
-  //默认false,不使用.但是在clear_costmap_recovery.cpp中有设置addExtraBounds
+  //在clear_costmap_recovery.cpp中有设置addExtraBounds，如果有clear_recovery行为,则会用外部的边界
+  //设置的边界，是local_map坐标原点，和长宽.只要执行过clear_costmap_recovery，这个边界就会被更新
+  //否则，就用障碍物点云生成的边界
   useExtraBounds(min_x, min_y, max_x, max_y);
 
   bool current = true;
   std::vector<Observation> observations, clearing_observations;
 
   // get the marking observations
-  //marking点,是指的occupy的网格
+  //marking点,是指的occupy的网格。这是激光雷达扫射到的障碍物点。保存的是所有观测值
   current = current && getMarkingObservations(observations);
 
   // get the clearing observations
-  //clearing是指的freespace的网格
+  //clearing是指的freespace的网格。保存的是所有观测值
   current = current && getClearingObservations(clearing_observations);
 
   // update the global current status
@@ -386,6 +428,7 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
 
     double sq_obstacle_range = obs.obstacle_range_ * obs.obstacle_range_;
 
+    //将扫掉的点云数据，修改其cost
     for (unsigned int i = 0; i < cloud.points.size(); ++i)
     {
       double px = cloud.points[i].x, py = cloud.points[i].y, pz = cloud.points[i].z;
@@ -417,13 +460,21 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
       }
 
       unsigned int index = getIndex(mx, my);
+      //把激光扫到的点的cost更新一下
       costmap_[index] = LETHAL_OBSTACLE;
+      //用点云数据来更新边界范围，我也是醉了。最后竟然是在这里体现所谓的边界
       touch(px, py, min_x, min_y, max_x, max_y);
     }
   }
 
   updateFootprint(robot_x, robot_y, robot_yaw, min_x, min_y, max_x, max_y);
 }
+
+
+
+
+
+
 
 void ObstacleLayer::updateFootprint(double robot_x, double robot_y, double robot_yaw, double* min_x, double* min_y,
                                     double* max_x, double* max_y)
@@ -460,6 +511,7 @@ void ObstacleLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, i
   }
 }
 
+//如下这两个函数，适用于动态障碍物添加和清除的函数。obstacle_layer有这个函数，但是暂时没有用到
 void ObstacleLayer::addStaticObservation(costmap_2d::Observation& obs, bool marking, bool clearing)
 {
   if (marking)
@@ -484,10 +536,12 @@ bool ObstacleLayer::getMarkingObservations(std::vector<Observation>& marking_obs
   {
     marking_buffers_[i]->lock();
     //这个函数是清除旧的障碍物, 然后把observation_list_的障碍物保存到marking_observations
+    //observation_list_保存的对象，是单次扫描的数据，而不是单个点
     marking_buffers_[i]->getObservations(marking_observations);
     current = marking_buffers_[i]->isCurrent() && current;
     marking_buffers_[i]->unlock();
   }
+  //把增加障碍物也添加到marking列表中，实际上这个列表是空的
   marking_observations.insert(marking_observations.end(),
                               static_marking_observations_.begin(), static_marking_observations_.end());
   return current;
@@ -512,12 +566,13 @@ bool ObstacleLayer::getClearingObservations(std::vector<Observation>& clearing_o
 void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, double* min_x, double* min_y,
                                               double* max_x, double* max_y)
 {
+  //单次观测的坐标原点，
   double ox = clearing_observation.origin_.x;
   double oy = clearing_observation.origin_.y;
   pcl::PointCloud < pcl::PointXYZ > cloud = *(clearing_observation.cloud_);
 
   // get the map coordinates of the origin of the sensor
-  //
+  //costmap的坐标原点在地图上的坐标
   unsigned int x0, y0;
   if (!worldToMap(ox, oy, x0, y0))
   {
@@ -532,7 +587,7 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
   double map_end_x = origin_x + size_x_ * resolution_;
   double map_end_y = origin_y + size_y_ * resolution_;
 
-
+  //这么一修改，最大最小值都等于ox，oy了
   touch(ox, oy, min_x, min_y, max_x, max_y);
 
   // for each point in the cloud, we want to trace a line from the origin and clear obstacles along it

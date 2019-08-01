@@ -71,6 +71,7 @@ bool ObstacleCostFunction::prepare() {
   return true;
 }
 
+//sum_scores_总是false，所以这里的score返回值总是小于等于0
 double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
   double cost = 0;
   double scale = getScalingFactor(traj, scaling_speed_, max_trans_vel_, max_scaling_factor_);
@@ -81,7 +82,7 @@ double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
     return -9;
   }
 
-  for (unsigned int i = 0; i < traj.getPointsSize(); ++i) {
+  for (unsigned int i = 0; i <  traj.getPointsSize(); ++i) {
     traj.getPoint(i, px, py, pth);
     double f_cost = footprintCost(px, py, pth,
         scale, footprint_spec_,
@@ -99,6 +100,7 @@ double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
   return cost;
 }
 
+//score的过程中并没有用scale啊，不知道预留这个做啥
 double ObstacleCostFunction::getScalingFactor(Trajectory &traj, double scaling_speed, double max_trans_vel, double max_scaling_factor) {
   double vmag = hypot(traj.xv_, traj.yv_);
 

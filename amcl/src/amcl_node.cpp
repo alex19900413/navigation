@@ -1129,7 +1129,7 @@ AmclNode::convertMap( const nav_msgs::OccupancyGrid& map_msg )
   map->size_x = map_msg.info.width;
   map->size_y = map_msg.info.height;
   map->scale = map_msg.info.resolution;
-  //将地图的坐标原点,平移到了中心(原坐标原点在0,0,在地图yaml文件中定义的)
+  //将地图的坐标原点(左下角),平移到了中心(原坐标原点在0,0,在地图yaml文件中定义的),估计这样做的目的，也是为了从中心点开始撒点，效果会更好一些？ 
   map->origin_x = map_msg.info.origin.position.x + (map->size_x / 2) * map->scale;
   map->origin_y = map_msg.info.origin.position.y + (map->size_y / 2) * map->scale;
   // Convert to player format
@@ -1197,10 +1197,11 @@ AmclNode::uniformPoseGenerator(void* arg)
 {
   map_t* map = (map_t*)arg;
 #if NEW_UNIFORM_SAMPLING
+  //这里的free_space_indices的大小，即free网格的数量。在左下角的地图坐标系下的坐标值
   unsigned int rand_index = drand48() * free_space_indices.size();
   std::pair<int,int> free_point = free_space_indices[rand_index];
   pf_vector_t p;
-  //MAP_WXGX将地图坐标转换到世界坐标.
+  //MAP_WXGX将地图坐标转换到世界坐标.地图的坐标原点在左下角。世界坐标默认是建图时的起点
   p.v[0] = MAP_WXGX(map, free_point.first);
   p.v[1] = MAP_WYGY(map, free_point.second);
   p.v[2] = drand48() * 2 * M_PI - M_PI;

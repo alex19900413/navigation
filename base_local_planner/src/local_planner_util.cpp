@@ -104,6 +104,8 @@ bool LocalPlannerUtil::setPlan(const std::vector<geometry_msgs::PoseStamped>& or
 
 bool LocalPlannerUtil::getLocalPlan(tf::Stamped<tf::Pose>& global_pose, std::vector<geometry_msgs::PoseStamped>& transformed_plan) {
   //get the global plan in our frame
+  //将全局路径改到local坐标系下，放在下一步去prune
+  //需要tflistenner，global_plan_是全局规划的路径，global_pose是机器人全局位姿，costmap是局部地图，global_frame是map，transformed_plan是local_costmap范围内的目标点
   if(!base_local_planner::transformGlobalPlan(
       *tf_,
       global_plan_,
@@ -116,7 +118,7 @@ bool LocalPlannerUtil::getLocalPlan(tf::Stamped<tf::Pose>& global_pose, std::vec
   }
 
   //now we'll prune the plan based on the position of the robot
-  //默认为false
+  //默认为false,用于去除太近的点。这个值得参考，可以测试一下
   if(limits_.prune_plan) {
     base_local_planner::prunePlan(global_pose, transformed_plan, global_plan_);
   }

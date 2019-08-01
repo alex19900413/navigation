@@ -56,6 +56,7 @@ void CostmapLayer::updateWithMax(costmap_2d::Costmap2D& master_grid, int min_i, 
     unsigned int it = j * span + min_i;
     for (int i = min_i; i < max_i; i++)
     {
+      //其他的情况就是free或occupied，如果比old值大，就更新
       if (costmap_[it] == NO_INFORMATION){
         it++;
         continue;
@@ -100,6 +101,8 @@ void CostmapLayer::updateWithOverwrite(costmap_2d::Costmap2D& master_grid, int m
     unsigned int it = span*j+min_i;
     for (int i = min_i; i < max_i; i++)
     {
+      //一开始怀疑costmap_在哪里更新的。其实就是在应用层更新的。应用层继承了costmap_layer这个类，costmap_是costmap2D的受保护对象
+      //所以这里的costmap_,应该是在updatebounds和raytraceFreespace里更新了的
       if (costmap_[it] != NO_INFORMATION)
         master[it] = costmap_[it];
       it++;

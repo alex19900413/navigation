@@ -94,6 +94,7 @@ public:
   {
   }
 
+  //被观测坐标系的坐标原点
   geometry_msgs::Point origin_;
   pcl::PointCloud<pcl::PointXYZ>* cloud_;
   double obstacle_range_, raytrace_range_;

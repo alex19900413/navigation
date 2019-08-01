@@ -76,6 +76,7 @@ namespace dwa_local_planner {
 
     stop_time_buffer_ = config.stop_time_buffer;
     oscillation_costs_.setOscillationResetDist(config.oscillation_reset_dist, config.oscillation_reset_angle);
+    //把正前方0.325的点作为第一个目标点。是不是这样才导致总是超前走一小段距离？
     forward_point_distance_ = config.forward_point_distance;
     goal_front_costs_.setXShift(forward_point_distance_);
     alignment_costs_.setXShift(forward_point_distance_);
@@ -169,11 +170,13 @@ namespace dwa_local_planner {
     //保存轨迹的点云数据，每个点是MapGridCostPoint类型
     traj_cloud_ = new pcl::PointCloud<base_local_planner::MapGridCostPoint>;
     traj_cloud_->header.frame_id = frame_id;
+    //这里都没有指定发布类型呢，用的是pcl_ros这个封装
     traj_cloud_pub_.advertise(private_nh, "trajectory_cloud", 1);
     private_nh.param("publish_traj_pc", publish_traj_pc_, false);
 
     // set up all the cost functions that will be applied in order
     // (any function returning negative values will abort scoring, so the order can improve performance)
+    //加载了这么多的打分决策，顺序还能够提高性能？不知道有啥办法可以直观的看打分效果，这样的话就可以尝试要不要放弃一些决策啥的
     std::vector<base_local_planner::TrajectoryCostFunction*> critics;
     critics.push_back(&oscillation_costs_); // discards oscillating motions (assisgns cost -1)
     critics.push_back(&obstacle_costs_); // discards trajectories that move into obstacles
@@ -258,8 +261,8 @@ namespace dwa_local_planner {
   }
 
   //第一个参数是机器人在map坐标系下的位姿
-  //第二个参数是全局路径
-  //第三个参数是机器人的local坐标系下的位姿
+  //第二个参数是local_costmap下的全局路径
+  //第三个参数是机器人的外形定义
   void DWAPlanner::updatePlanAndLocalCosts(
       tf::Stamped<tf::Pose> global_pose,
       const std::vector<geometry_msgs::PoseStamped>& new_plan,
@@ -269,9 +272,12 @@ namespace dwa_local_planner {
     for (unsigned int i = 0; i < new_plan.size(); ++i) {
       global_plan_[i] = new_plan[i];
     }
-
+    //这里面不见oscillation_cost_function
+    //这里有点疑问，如果机器人是圆形底盘，给的是半径，会转换成footprint？
     obstacle_costs_.setFootprint(footprint_spec);
 
+
+    //后面四个是map_grid_cost_function
     // costs for going away from path
     path_costs_.setTargetPoses(global_plan_);
 
@@ -279,11 +285,12 @@ namespace dwa_local_planner {
     goal_costs_.setTargetPoses(global_plan_);
 
     // alignment costs
-    // 取全局路径的最近的一个goal作为临时目标点
+    // 取全局路径的最后一个还是最初始那个？
     geometry_msgs::PoseStamped goal_pose = global_plan_.back();
 
-    //计算当前位置到最近一个目标点的距离
+    //这是当前位姿
     Eigen::Vector3f pos(global_pose.getOrigin().getX(), global_pose.getOrigin().getY(), tf::getYaw(global_pose.getRotation()));
+    //计算当前位置到最近一个目标点的直线距离
     double sq_dist =
         (pos[0] - goal_pose.pose.position.x) * (pos[0] - goal_pose.pose.position.x) +
         (pos[1] - goal_pose.pose.position.y) * (pos[1] - goal_pose.pose.position.y);
@@ -298,11 +305,13 @@ namespace dwa_local_planner {
     std::vector<geometry_msgs::PoseStamped> front_global_plan = global_plan_;
     //计算当前位姿到目标点的角度，然后更新front_global_plan最后一个元素的值
     double angle_to_goal = atan2(goal_pose.pose.position.y - pos[1], goal_pose.pose.position.x - pos[0]);
+    //按下面的意思是，把原来最后一个目标点，挪远一点，这不好吧
     front_global_plan.back().pose.position.x = front_global_plan.back().pose.position.x +
       forward_point_distance_ * cos(angle_to_goal);
     front_global_plan.back().pose.position.y = front_global_plan.back().pose.position.y + forward_point_distance_ *
       sin(angle_to_goal);
 
+    //上面计算这些，就是为了初始化goal_front_costs
     goal_front_costs_.setTargetPoses(front_global_plan);
     
     // keeping the nose on the path
@@ -321,7 +330,10 @@ namespace dwa_local_planner {
 
   /*
    * given the current state of the robot, find a good trajectory
-   * 最佳路径保存为result_traj_
+   * 最佳路径保存为result_traj_，这是最关键的函数吧 
+   * 第一个参数是frame_id为map的stamped对象，描述的是位姿
+   * 第二个参数是frame_id为base_link的stamped对象，这里描述的是速度
+   * 第三个参数，保存的也是速度
    */
   base_local_planner::Trajectory DWAPlanner::findBestPath(
       tf::Stamped<tf::Pose> global_pose,
@@ -339,19 +351,19 @@ namespace dwa_local_planner {
 
     // prepare cost functions and generators for this run
     //负责速度采样，采样的vsamples被保存在了generator_对象中。可以被TrajectorySampleGenerator基类指向
-    //在simple_scored_sampling_planner里执行打分，会调用这里生成的速度采样
+    //在simple_scored_sampling_planner里执行打分，会调用这里生成的速度采样。初始化就是速度采样
     generator_.initialise(pos,
         vel,
         goal,
         &limits,
         vsamples_);
-    //这个分数怎么来的？总共7个costFunction，默认初始为-1，累积之和就是-7
+    //这个分数怎么来的？总共7个costFunction，默认初始为-1，累积之和就是-7。
     result_traj_.cost_ = -7;
     // find best trajectory by sampling and scoring the samples
     std::vector<base_local_planner::Trajectory> all_explored;
     //result_traj是最优路径，all_explored是保存被计算的路径.在这里面就会用到上面的速度采样
     scored_sampling_planner_.findBestTrajectory(result_traj_, &all_explored);
-
+    //发布轨迹点云轨迹
     if(publish_traj_pc_)
     {
         base_local_planner::MapGridCostPoint pt;

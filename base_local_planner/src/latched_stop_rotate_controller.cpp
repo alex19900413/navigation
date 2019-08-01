@@ -48,6 +48,7 @@ bool LatchedStopRotateController::isPositionReached(LocalPlannerUtil* planner_ut
   double goal_y = goal_pose.getOrigin().getY();
 
   //check to see if we've reached the goal position
+  //目标距离小于指定距离时，就判定到达了
   if ((latch_xy_goal_tolerance_ && xy_tolerance_latch_) ||
       base_local_planner::getGoalPositionDistance(global_pose, goal_x, goal_y) <= xy_goal_tolerance) {
     xy_tolerance_latch_ = true;
@@ -84,6 +85,8 @@ bool LatchedStopRotateController::isGoalReached(LocalPlannerUtil* planner_util,
   base_local_planner::LocalPlannerLimits limits = planner_util->getCurrentLimits();
 
   //check to see if we've reached the goal position
+  //从这里可以看出来，一旦到达过一次目标点，那么xy_tolerance_latch就会被设置为true，且一直保存，直到给一个新的goal，才会被置为false(dwa_planner_ros/reset_Latching)
+  //如果设置latch_xy_goal_tolerance_为true的话，到达目标点后，就会在原地旋转。如果角度满足阈值，则会停下来。
   if ((latch_xy_goal_tolerance_ && xy_tolerance_latch_) ||
       base_local_planner::getGoalPositionDistance(global_pose, goal_x, goal_y) <= xy_goal_tolerance) {
     //if the user wants to latch goal tolerance, if we ever reach the goal location, we'll
@@ -221,13 +224,13 @@ bool LatchedStopRotateController::computeVelocityCommandsStopRotate(geometry_msg
   //check to see if the goal orientation has been reached
   double goal_th = tf::getYaw(goal_pose.getRotation());
   double angle = base_local_planner::getGoalOrientationAngleDifference(global_pose, goal_th);
-  if (fabs(angle) <= limits.yaw_goal_tolerance) {
+  if (fabs(angle) <= limits.yaw_goal_tolerance) {//如果角度也满足要求了，则停止转动
     //set the velocity command to zero
     cmd_vel.linear.x = 0.0;
     cmd_vel.linear.y = 0.0;
     cmd_vel.angular.z = 0.0;
     rotating_to_goal_ = false;
-  } else {
+  } else {//如果角度没有满足，则继续旋转
     ROS_DEBUG("Angle: %f Tolerance: %f", angle, limits.yaw_goal_tolerance);
     tf::Stamped<tf::Pose> robot_vel;
     odom_helper_.getRobotVel(robot_vel);
@@ -235,8 +238,9 @@ bool LatchedStopRotateController::computeVelocityCommandsStopRotate(geometry_msg
     odom_helper_.getOdom(base_odom);
 
     //if we're not stopped yet... we want to stop... taking into account the acceleration limits of the robot
+    //检测一下是否停下来了先。stop函数检查小车的移动速度是否小于默认最小停止速度(这个速度有意思，表示当速度小于这个值时，小车是不会动的，这个跟底层驱动有关)
     if ( ! rotating_to_goal_ && !base_local_planner::stopped(base_odom, limits.rot_stopped_vel, limits.trans_stopped_vel)) {
-      if ( ! stopWithAccLimits(
+      if ( ! stopWithAccLimits(//将小车停下来
           global_pose,
           robot_vel,
           cmd_vel,
@@ -251,6 +255,8 @@ bool LatchedStopRotateController::computeVelocityCommandsStopRotate(geometry_msg
     //if we're stopped... then we want to rotate to goal
     else {
       //set this so that we know its OK to be moving
+      //执行旋转，等下次更新时检测角度是否达标。那这个更新频率是多少呢？就是controller_frequency
+      //如果底盘性能比较好，能够以较低的速度旋转，同时controller_frequency可以设置更大一些，那么定位精度应该会有很大的提升
       rotating_to_goal_ = true;
       if ( ! rotateToGoal(
           global_pose,

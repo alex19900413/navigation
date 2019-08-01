@@ -37,7 +37,7 @@
 
 namespace costmap_2d
 {
-
+//footprint是相对base_link坐标系来的。计算得到最大最小距离，从而算出内切圆半径和外切圆半径
 void calculateMinAndMaxDistances(const std::vector<geometry_msgs::Point>& footprint, double& min_dist, double& max_dist)
 {
   min_dist = std::numeric_limits<double>::max();
@@ -51,7 +51,7 @@ void calculateMinAndMaxDistances(const std::vector<geometry_msgs::Point>& footpr
   for (unsigned int i = 0; i < footprint.size() - 1; ++i)
   {
     // check the distance from the robot center point to the first vertex
-    //点距离坐标原点的距离
+    //点距离坐标原点中心点的距离
     double vertex_dist = distance(0.0, 0.0, footprint[i].x, footprint[i].y);
     //相邻两点的距离
     double edge_dist = distanceToLine(0.0, 0.0, footprint[i].x, footprint[i].y,
