@@ -227,6 +227,7 @@ namespace navfn {
   void
     NavFn::setCostmap(const COSTTYPE *cmap, bool isROS, bool allow_unknown)
     {
+      //这个是navfn维护的地图变量
       COSTTYPE *cm = costarr;
       if (isROS)			// ROS-type cost array
       {
@@ -243,6 +244,7 @@ namespace navfn {
             int v = *cmap;
             if (v < COST_OBS_ROS)
             {
+              //确保输出值在50-252的范围内
               v = COST_NEUTRAL+COST_FACTOR*v;
               if (v >= COST_OBS)
                 v = COST_OBS-1;

@@ -65,8 +65,10 @@ void GradientPath::setSize(int xs, int ys) {
     grady_ = new float[xs * ys];
 }
 
+//global_planner里提到了是用8个点查找，所以路径可能不是最优的
 bool GradientPath::getPath(float* potential, double start_x, double start_y, double goal_x, double goal_y, std::vector<std::pair<float, float> >& path) {
     std::pair<float, float> current;
+    
     int stc = getIndex(goal_x, goal_y);
 
     // set up offset

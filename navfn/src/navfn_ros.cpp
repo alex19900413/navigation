@@ -77,7 +77,7 @@ namespace navfn {
       //if we're going to visualize the potential array we need to advertise
       if(visualize_potential_)
         potarr_pub_.advertise(private_nh, "potential", 1);
-
+      //全局规划是否搜索位置区域
       private_nh.param("allow_unknown", allow_unknown_, true);
       private_nh.param("planner_window_x", planner_window_x_, 0.0);
       private_nh.param("planner_window_y", planner_window_y_, 0.0);
@@ -98,6 +98,17 @@ namespace navfn {
   void NavfnROS::initialize(std::string name, costmap_2d::Costmap2DROS* costmap_ros){
     initialize(name, costmap_ros->getCostmap(), costmap_ros->getGlobalFrameID());
   }
+
+
+
+
+
+
+
+
+
+
+
 
   bool NavfnROS::validPointPotential(const geometry_msgs::Point& world_point){
     return validPointPotential(world_point, default_tolerance_);
@@ -144,6 +155,7 @@ namespace navfn {
     return planner_->potarr[index];
   }
 
+  //另外一种路径计算方法，在wiki上可以找到
   bool NavfnROS::computePotential(const geometry_msgs::Point& world_point){
     if(!initialized_){
       ROS_ERROR("This planner has not been initialized yet, but it is being used, please call initialize() before use");
@@ -169,6 +181,7 @@ namespace navfn {
     planner_->setStart(map_start);
     planner_->setGoal(map_goal);
 
+    //atstart=false
     return planner_->calcNavFnDijkstra();
   }
 
@@ -230,6 +243,7 @@ namespace navfn {
     double wx = start.pose.position.x;
     double wy = start.pose.position.y;
 
+    //costmap2D的图像坐标原点是左下角
     unsigned int mx, my;
     if(!costmap_->worldToMap(wx, wy, mx, my)){
       ROS_WARN("The robot's start position is off the global costmap. Planning will always fail, are you sure the robot has been properly localized?");
@@ -239,6 +253,7 @@ namespace navfn {
     //clear the starting cell within the costmap because we know it can't be an obstacle
     tf::Stamped<tf::Pose> start_pose;
     tf::poseStampedMsgToTF(start, start_pose);
+    //只是清除单个像素的value值
     clearRobotCell(start_pose, mx, my);
 
 #if 0
@@ -251,7 +266,9 @@ namespace navfn {
 #endif
 
     //make sure to resize the underlying array that Navfn uses
+    //初始化相关数组
     planner_->setNavArr(costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
+    //根据给定的char map，修改自己维护的地图数组的value值
     planner_->setCostmap(costmap_->getCharMap(), true, allow_unknown_);
 
 #if 0
@@ -266,7 +283,7 @@ namespace navfn {
     int map_start[2];
     map_start[0] = mx;
     map_start[1] = my;
-
+  
     wx = goal.pose.position.x;
     wy = goal.pose.position.y;
 
@@ -283,6 +300,7 @@ namespace navfn {
     map_goal[0] = mx;
     map_goal[1] = my;
 
+    //这里的名字太搞笑了
     planner_->setStart(map_goal);
     planner_->setGoal(map_start);
 

@@ -40,6 +40,7 @@
 #include <stdio.h>
 namespace global_planner {
 
+//先将goal放到path中，然后找goal附近四个点，找到其potential最小的点，将其设置为min，并保存到path中，继续查找min四周最小的potential点。直到找到start=0
 bool GridPath::getPath(float* potential, double start_x, double start_y, double end_x, double end_y, std::vector<std::pair<float, float> >& path) {
     std::pair<float, float> current;
     current.first = end_x;
@@ -54,8 +55,10 @@ bool GridPath::getPath(float* potential, double start_x, double start_y, double 
     while (getIndex(current.first, current.second) != start_index) {
         float min_val = 1e10;
         int min_x = 0, min_y = 0;
+        //遍历周围8个元素
         for (int xd = -1; xd <= 1; xd++) {
             for (int yd = -1; yd <= 1; yd++) {
+                //不检查curret元素
                 if (xd == 0 && yd == 0)
                     continue;
                 int x = current.first + xd, y = current.second + yd;
@@ -73,6 +76,7 @@ bool GridPath::getPath(float* potential, double start_x, double start_y, double 
         current.second = min_y;
         path.push_back(current);
         
+        //设置一个限制条件，索引次数太多就返回失败。一般来说，这个不会触发吧
         if(c++>ns*4){
             return false;
         }

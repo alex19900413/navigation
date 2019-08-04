@@ -52,6 +52,7 @@ PLUGINLIB_EXPORT_CLASS(global_planner::GlobalPlanner, nav_core::BaseGlobalPlanne
 
 namespace global_planner {
 
+//把(0,0)和（nx，ny）之间的区域框起来，边框的值设置为value
 void GlobalPlanner::outlineMap(unsigned char* costarr, int nx, int ny, unsigned char value) {
     unsigned char* pc = costarr;
     for (int i = 0; i < nx; i++)
@@ -100,6 +101,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
 
         unsigned int cx = costmap->getSizeInCellsX(), cy = costmap->getSizeInCellsY();
 
+        //默认是false，相当于把网格坐标从角点移到网格中心
         private_nh.param("old_navfn_behavior", old_navfn_behavior_, false);
         if(!old_navfn_behavior_)
             convert_offset_ = 0.5;
@@ -107,8 +109,9 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
             convert_offset_ = 0.0;
 
         bool use_quadratic;
-        //默认使用Quadratical计算器,且potential计算器根本就没实现.哈哈.正如其名,潜在的计算器
+        //默认使用Quadratical计算器。考虑了周围四个元素的cost对中心元素的影响。
         private_nh.param("use_quadratic", use_quadratic, true);
+        //这个计算器主要是在Astar中用，Dijkstra没有用到。
         if (use_quadratic)
             p_calc_ = new QuadraticCalculator(cx, cy);
         else
@@ -130,6 +133,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
         bool use_grid_path;
         //这两个路径有啥区别呢?
         private_nh.param("use_grid_path", use_grid_path, false);
+        //默认为true，路径沿着网格边界规划
         if (use_grid_path)
             path_maker_ = new GridPath(p_calc_);
         else
@@ -296,23 +300,27 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
     int nx = costmap_->getSizeInCellsX(), ny = costmap_->getSizeInCellsY();
 
     //make sure to resize the underlying array that Navfn uses
+    //分配空间
     p_calc_->setSize(nx, ny);
     planner_->setSize(nx, ny);
     path_maker_->setSize(nx, ny);
+    //保存起点到该点的花费
     potential_array_ = new float[nx * ny];
 
+    //将costmap四个边的cell全部设置为致命障碍物
     outlineMap(costmap_->getCharMap(), nx, ny, costmap_2d::LETHAL_OBSTACLE);
 
+    //计算potential，起点到任意点的花费，具体看Astar和Dijkstra
     bool found_legal = planner_->calculatePotentials(costmap_->getCharMap(), start_x, start_y, goal_x, goal_y,
                                                     nx * ny * 2, potential_array_);
 
-    if(!old_navfn_behavior_)
+    if(!old_navfn_behavior_)//把目标点四周的元素的potential值更新一下，因为有可能前面的计算方法，并没有完全更新到。方便后面回找路径
         planner_->clearEndpoint(costmap_->getCharMap(), potential_array_, goal_x_i, goal_y_i, 2);
     if(publish_potential_)
         publishPotential(potential_array_);
 
     if (found_legal) {
-        //extract the plan
+        //extract the plan，提取路径。得到的路径点的方向，都是朝同一个方向，所以后面必须得做平滑插值
         if (getPlanFromPotential(start_x, start_y, goal_x, goal_y, goal, plan)) {
             //make sure the goal we push on has the same timestamp as the rest of the plan
             geometry_msgs::PoseStamped goal_copy = goal;
@@ -325,7 +333,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
         ROS_ERROR("Failed to get a plan.");
     }
 
-    // add orientations if needed
+    // add orientations if needed，plan中只保存了点路径坐标，这里更新了方向
     orientation_filter_->processPath(start, plan);
 
     //publish the plan for visualization purposes

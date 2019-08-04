@@ -42,6 +42,9 @@
 
 namespace global_planner {
 
+/**
+ * 定义了getPath接口，根据建立的potential，从目标点回溯到起点，并把路径保存到path中
+*/
 class Traceback {
     public:
         Traceback(PotentialCalculator* p_calc) : p_calc_(p_calc) {}

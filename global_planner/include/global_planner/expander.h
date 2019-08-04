@@ -41,7 +41,11 @@
 #include <global_planner/planner_core.h>
 
 namespace global_planner {
-
+/**
+ * 全局规划算法的基类
+ * 关键函数：calculatePotentials
+ * potential是一个nx*ny大小的数组，保存的是起点到该点的花费
+*/
 class Expander {
     public:
         Expander(PotentialCalculator* p_calc, int nx, int ny) :

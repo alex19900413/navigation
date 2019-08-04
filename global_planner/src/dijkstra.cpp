@@ -39,6 +39,7 @@
 #include <algorithm>
 namespace global_planner {
 
+//Dijkstra算法，并没有用到PotentialCalculator类，虽然这个构造函数中会传入p_calc
 DijkstraExpansion::DijkstraExpansion(PotentialCalculator* p_calc, int nx, int ny) :
         Expander(p_calc, nx, ny), pending_(NULL), precise_(false) {
     // priority buffers
@@ -94,6 +95,7 @@ bool DijkstraExpansion::calculatePotentials(unsigned char* costs, double start_x
     // set goal
     int k = toIndex(start_x, start_y);
 
+    //默认false
     if(precise_)
     {
         double dx = start_x - (int)start_x, dy = start_y - (int)start_y;
@@ -178,6 +180,17 @@ bool DijkstraExpansion::calculatePotentials(unsigned char* costs, double start_x
     else
         return false;
 }
+
+
+
+
+
+
+
+
+
+
+
 
 //
 // Critical function: calculate updated potential value of a cell,

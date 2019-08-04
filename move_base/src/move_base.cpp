@@ -687,7 +687,7 @@ namespace move_base {
     ROS_DEBUG_NAMED("move_base_plan_thread","Starting planner thread...");
     ros::NodeHandle n;
     ros::Timer timer;
-    bool wait_for_wake = false;
+    bool wait_for_wake = false; //函数末尾会按频率将其置为true
     boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
     while(n.ok()){
       //check if we should run the planner (the mutex is locked)

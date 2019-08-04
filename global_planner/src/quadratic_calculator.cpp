@@ -33,6 +33,7 @@ namespace global_planner {
 float QuadraticCalculator::calculatePotential(float* potential, unsigned char cost, int n, float prev_potential) {
     // get neighbors
     float u, d, l, r;
+    //这里的neighbor并没有排除掉已经更新了potential的点，
     l = potential[n - 1];
     r = potential[n + 1];
     u = potential[n - nx_];
@@ -54,6 +55,7 @@ float QuadraticCalculator::calculatePotential(float* potential, unsigned char co
 
     float hf = cost; // traversability factor
     float dc = tc - ta;        // relative cost between ta,tc
+    //这样的话，tc，ta都是最小值了
     if (dc < 0)         // tc is lowest
             {
         dc = -dc;
