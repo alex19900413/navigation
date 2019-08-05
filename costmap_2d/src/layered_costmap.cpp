@@ -114,7 +114,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 
   if (plugins_.size() == 0)
     return;
-  //这个值给的很奇怪嘛，而且只能在clear_costmap_recovery才可以修改
+  //这个值给的很奇怪。这是地图尺寸的世界坐标系map下的值
   minx_ = miny_ = 1e30;
   maxx_ = maxy_ = -1e30;
 
@@ -126,9 +126,9 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     double prev_miny = miny_;
     double prev_maxx = maxx_;
     double prev_maxy = maxy_;
-    //更新地图边界
+    //更新地图边界。如障碍物层更新完之后，边界就变得跟地图大小差不多了
     (*plugin)->updateBounds(robot_x, robot_y, robot_yaw, &minx_, &miny_, &maxx_, &maxy_);
-    //边界判断，不允许边界缩小？
+    //这么判断估计是怕updateBounds出问题，造成越界吧
     if (minx_ > prev_minx || miny_ > prev_miny || maxx_ < prev_maxx || maxy_ < prev_maxy)
     {
       ROS_WARN_THROTTLE(1.0, "Illegal bounds change, was [tl: (%f, %f), br: (%f, %f)], but "
@@ -141,7 +141,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 
   //获得地图的新边界
   int x0, xn, y0, yn;
-  //
+  //世界坐标(单位m)转换为地图坐标（pixel）
   costmap_.worldToMapEnforceBounds(minx_, miny_, x0, y0);
   costmap_.worldToMapEnforceBounds(maxx_, maxy_, xn, yn);
 
@@ -164,7 +164,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     (*plugin)->updateCosts(costmap_, x0, y0, xn, yn);
   }
 
-  //保存更新的边界，给下次更新使用
+  //保存更新的边界，给下次更新使用.在costmap_2d_ros的updateMap中调用，在发布costmap前更新
   bx0_ = x0;
   bxn_ = xn;
   by0_ = y0;

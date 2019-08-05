@@ -3,6 +3,7 @@
 namespace costmap_2d
 {
 
+//都是在世界坐标系global_map下的坐标值
 void CostmapLayer::touch(double x, double y, double* min_x, double* min_y, double* max_x, double* max_y)
 {
     *min_x = std::min(x, *min_x);
@@ -27,11 +28,14 @@ void CostmapLayer::addExtraBounds(double mx0, double my0, double mx1, double my1
     has_extra_bounds_ = true;
 }
 
+//默认初始化为1e6和-1e6
 void CostmapLayer::useExtraBounds(double* min_x, double* min_y, double* max_x, double* max_y)
 {
+    //默认为false，不使用.当clear_costmap时才会设置为true
     if (!has_extra_bounds_)
         return;
 
+    //如果进入到这一步，那么extra_*参数已经就更新为实际map大小
     *min_x = std::min(extra_min_x_, *min_x);
     *min_y = std::min(extra_min_y_, *min_y);
     *max_x = std::max(extra_max_x_, *max_x);

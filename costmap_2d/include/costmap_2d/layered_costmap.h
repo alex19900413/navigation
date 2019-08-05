@@ -161,6 +161,7 @@ private:
   bool rolling_window_;  /// < @brief Whether or not the costmap should roll with the robot
 
   bool current_;
+  //如下两个，都是用于描述地图的边界大小，前面用于世界坐标，后面用于地图坐标，更新costmap大小
   double minx_, miny_, maxx_, maxy_;
   unsigned int bx0_, bxn_, by0_, byn_;
   //没有初始化?有一个add_plugin的函数去添加插件

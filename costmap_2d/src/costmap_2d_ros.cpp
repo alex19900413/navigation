@@ -453,8 +453,10 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
     if (publish_cycle.toSec() > 0 && layered_costmap_->isInitialized())
     {
       unsigned int x0, y0, xn, yn;
+      //获取上次更新的边界值
       layered_costmap_->getBounds(&x0, &xn, &y0, &yn);
-      //更新边界
+      //更新边界。publiser初始化的时候调用了costmap_，将自己的成员变量xn_,yn_设置成为了地图大小
+      //所以这里把边界也该成了地图大小了
       publisher_->updateBounds(x0, xn, y0, yn);
 
       ros::Time now = ros::Time::now();
@@ -485,9 +487,9 @@ void Costmap2DROS::updateMap()
       double x = pose.getOrigin().x(),
              y = pose.getOrigin().y(),
              yaw = tf::getYaw(pose.getRotation());
+             
       /**分两个阶段,第一阶段是updateBounds.第二个阶段是updateCosts
       *这个更新,是layered_costmap调用的,会更新所有插件地图
-      *
       */
       layered_costmap_->updateMap(x, y, yaw);
 

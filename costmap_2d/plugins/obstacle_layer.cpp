@@ -67,6 +67,7 @@ void ObstacleLayer::onInitialize()
   else
     default_value_ = FREE_SPACE;
 
+  //更新了地图的大小
   ObstacleLayer::matchSize();
   current_ = true;
 
@@ -149,6 +150,7 @@ void ObstacleLayer::onInitialize()
 
     // create an observation buffer
     //有个专门的observationBuffer类,用来保存激光雷达/点云数据
+    //由于目前只有设置了scan类型，所以这个数组当前只有一个元素，保存的就是激光的观测值。
     observation_buffers_.push_back(
         boost::shared_ptr < ObservationBuffer> (new ObservationBuffer(topic, observation_keep_time, expected_update_rate, min_obstacle_height,
                                      max_obstacle_height, obstacle_range, raytrace_range, *tf_, global_frame_,
@@ -394,12 +396,13 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
     updateOrigin(robot_x - getSizeInMetersX() / 2, robot_y - getSizeInMetersY() / 2);
   if (!enabled_)
     return;
-  //在clear_costmap_recovery.cpp中有设置addExtraBounds，如果有clear_recovery行为,则会用外部的边界
-  //设置的边界，是local_map坐标原点，和长宽.只要执行过clear_costmap_recovery，这个边界就会被更新
-  //否则，就用障碍物点云生成的边界
+  
+  //如果执行了clear_costmap，那么这里就变成了实际地图大小了。如果没有，则不会做任何操作
+  //这个范围是从layered_costmap中传进来的，可能会非常大1e30
   useExtraBounds(min_x, min_y, max_x, max_y);
 
   bool current = true;
+  //就是拷贝的observation_list的内容，注意，这都是已经在global_map坐标系下了.也就是世界坐标系下的观测值
   std::vector<Observation> observations, clearing_observations;
 
   // get the marking observations
@@ -420,12 +423,14 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
   }
 
   // place the new obstacles into a priority queue... each with a priority of zero to begin with
+  //根据点云数据，更新costmap_value值，以及边界范围值
   for (std::vector<Observation>::const_iterator it = observations.begin(); it != observations.end(); ++it)
   {
     const Observation& obs = *it;
 
     const pcl::PointCloud<pcl::PointXYZ>& cloud = *(obs.cloud_);
 
+    //2.5 * 2.5
     double sq_obstacle_range = obs.obstacle_range_ * obs.obstacle_range_;
 
     //将扫掉的点云数据，修改其cost
@@ -445,6 +450,7 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
           + (pz - obs.origin_.z) * (pz - obs.origin_.z);
 
       // if the point is far enough away... we won't consider it
+      //只检测设定障碍物距离内的点，这是一个圆形区域
       if (sq_dist >= sq_obstacle_range)
       {
         ROS_DEBUG("The point is too far away");
@@ -462,11 +468,12 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
       unsigned int index = getIndex(mx, my);
       //把激光扫到的点的cost更新一下
       costmap_[index] = LETHAL_OBSTACLE;
-      //用点云数据来更新边界范围，我也是醉了。最后竟然是在这里体现所谓的边界
+      //用点云数据来更新边界范围，这里其实也就是缩小这几个变量的范围，趋于正常值
       touch(px, py, min_x, min_y, max_x, max_y);
     }
   }
 
+  //根据机器人的外形尺寸，更新最小边界
   updateFootprint(robot_x, robot_y, robot_yaw, min_x, min_y, max_x, max_y);
 }
 
@@ -566,13 +573,13 @@ bool ObstacleLayer::getClearingObservations(std::vector<Observation>& clearing_o
 void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, double* min_x, double* min_y,
                                               double* max_x, double* max_y)
 {
-  //单次观测的坐标原点，
+  //单次观测的坐标原点，即sensor在global_map下的坐标点
   double ox = clearing_observation.origin_.x;
   double oy = clearing_observation.origin_.y;
   pcl::PointCloud < pcl::PointXYZ > cloud = *(clearing_observation.cloud_);
 
   // get the map coordinates of the origin of the sensor
-  //costmap的坐标原点在地图上的坐标
+  //计算sensor在地图坐标系上的坐标
   unsigned int x0, y0;
   if (!worldToMap(ox, oy, x0, y0))
   {
@@ -583,6 +590,7 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
   }
 
   // we can pre-compute the enpoints of the map outside of the inner loop... we'll need these later
+  //在内循环外先预计算地图的端点
   double origin_x = origin_x_, origin_y = origin_y_;
   double map_end_x = origin_x + size_x_ * resolution_;
   double map_end_y = origin_y + size_y_ * resolution_;
@@ -591,6 +599,7 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
   touch(ox, oy, min_x, min_y, max_x, max_y);
 
   // for each point in the cloud, we want to trace a line from the origin and clear obstacles along it
+  //对于每一个障碍物点，会清除原点到障碍物点之间的所有值
   for (unsigned int i = 0; i < cloud.points.size(); ++i)
   {
     double wx = cloud.points[i].x;
@@ -598,12 +607,15 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
 
     // now we also need to make sure that the enpoint we're raytracing
     // to isn't off the costmap and scale if necessary
+    //点云到laser坐标点的距离
     double a = wx - ox;
     double b = wy - oy;
 
     // the minimum value to raytrace from is the origin
+    //如果点超出范围了，那就只更新的边界那里
     if (wx < origin_x)
     {
+      //
       double t = (origin_x - ox) / a;
       wx = origin_x;
       wy = oy + b * t;
@@ -633,12 +645,15 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
     unsigned int x1, y1;
 
     // check for legality just in case
+    //把障碍物点坐标转到地图坐标
     if (!worldToMap(wx, wy, x1, y1))
       continue;
 
+    //这一部分实在看不懂是什么意思啊
     unsigned int cell_raytrace_range = cellDistance(clearing_observation.raytrace_range_);
     MarkCell marker(costmap_, FREE_SPACE);
     // and finally... we can execute our trace to clear obstacles along that line
+    //清除这条线上的值，即设置为free
     raytraceLine(marker, x0, y0, x1, y1, cell_raytrace_range);
 
     updateRaytraceBounds(ox, oy, wx, wy, clearing_observation.raytrace_range_, min_x, min_y, max_x, max_y);

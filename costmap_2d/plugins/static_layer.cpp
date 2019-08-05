@@ -154,7 +154,7 @@ unsigned char StaticLayer::interpretValue(unsigned char value)
     return NO_INFORMATION;
   else if (!track_unknown_space_ && value == unknown_cost_value_)
     return FREE_SPACE;
-  else if (value >= lethal_threshold_)
+  else if (value >= lethal_threshold_)  //100
     return LETHAL_OBSTACLE;
   else if (trinary_costmap_)
     return FREE_SPACE;
@@ -163,6 +163,8 @@ unsigned char StaticLayer::interpretValue(unsigned char value)
   return scale * LETHAL_OBSTACLE;
 }
 
+
+//重点在这里啊，这里调用了layered_costmap_修改了地图的大小
 void StaticLayer::incomingMap(const nav_msgs::OccupancyGridConstPtr& new_map)
 {
   //地图的长宽

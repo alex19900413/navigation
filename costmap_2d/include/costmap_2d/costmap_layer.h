@@ -143,6 +143,7 @@ protected:
   bool has_extra_bounds_;
 
 private:
+  //用来保存外部边界值，如clear_costmap_recovery，我屮艸芔茻，那里面也是调用的layered_costmap获取的大小啊
   double extra_min_x_, extra_max_x_, extra_min_y_, extra_max_y_;
 };
 

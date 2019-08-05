@@ -42,6 +42,7 @@ Layer::Layer()
 
 void Layer::initialize(LayeredCostmap* parent, std::string name, tf::TransformListener *tf)
 {
+  //每个应用层layer都可以调用这个指针了
   layered_costmap_ = parent;
   name_ = name;
   tf_ = tf;

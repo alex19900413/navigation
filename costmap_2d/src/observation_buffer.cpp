@@ -114,9 +114,10 @@ void ObservationBuffer::bufferCloud(const sensor_msgs::PointCloud2& cloud)
   try
   {
     pcl::PCLPointCloud2 pcl_pc2;
-    pcl_conversions::toPCL(cloud, pcl_pc2);
+    pcl_conversions::toPCL(cloud, pcl_pc2); //这是一个ros包，可能真的只能转换PointCloud2类型的数据
     // Actually convert the PointCloud2 message into a type we can reason about
     pcl::PointCloud < pcl::PointXYZ > pcl_cloud;
+    //把pcl::PointClound2再转换为pcl::PointCloud
     pcl::fromPCLPointCloud2(pcl_pc2, pcl_cloud);
     bufferCloud(pcl_cloud);
   }
@@ -127,6 +128,7 @@ void ObservationBuffer::bufferCloud(const sensor_msgs::PointCloud2& cloud)
   }
 }
 
+//了解了。Pointcloud是个模板类，必须继承其他的类。pcl类也有header这个头？真的有，感觉rosmsg就是抄的pcl
 void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
 {
   //这是一个tf数据结构
@@ -142,11 +144,13 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
   try
   {
     // given these observations come from sensors... we'll need to store the origin pt of the sensor
+    //local_origin的坐标原点默认为0，下面将此坐标转换到map坐标系下
     Stamped < tf::Vector3 > local_origin(tf::Vector3(0, 0, 0),
                             pcl_conversions::fromPCL(cloud.header).stamp, origin_frame);
     tf_.waitForTransform(global_frame_, local_origin.frame_id_, local_origin.stamp_, ros::Duration(0.5));
     //激光雷达点云数据在地图坐标系下的坐标值
     tf_.transformPoint(global_frame_, local_origin, global_origin);
+    //所以观测点的坐标原点，是传感器在map坐标系下的值
     observation_list_.front().origin_.x = global_origin.getX();
     observation_list_.front().origin_.y = global_origin.getY();
     observation_list_.front().origin_.z = global_origin.getZ();
@@ -163,6 +167,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
     global_frame_cloud.header.stamp = cloud.header.stamp;
 
     // now we need to remove observations from the cloud that are below or above our height thresholds
+    //这里用到了c++的引用
     pcl::PointCloud < pcl::PointXYZ > &observation_cloud = *(observation_list_.front().cloud_);
     unsigned int cloud_size = global_frame_cloud.points.size();
     observation_cloud.points.resize(cloud_size);
@@ -224,6 +229,7 @@ void ObservationBuffer::purgeStaleObservations()
     //设置为0，即不保留之前观测的数据，observation_list只保留当场观测数据
     if (observation_keep_time_ == ros::Duration(0.0))
     {
+      //把第二个元素到最后一个元素中间的都清除掉，移除[first,last）的元素
       observation_list_.erase(++obs_it, observation_list_.end());
       return;
     }
@@ -234,9 +240,11 @@ void ObservationBuffer::purgeStaleObservations()
     {
       Observation& obs = *obs_it;
       // check if the observation is out of date... and if it is, remove it and those that follow from the list
+      //后面的stamp是传感器的接收时间，last_updated肯定要大于此时间的，那不得把所有元素都给删除了
       ros::Duration time_diff = last_updated_ - pcl_conversions::fromPCL(obs.cloud_->header).stamp;
       if (time_diff > observation_keep_time_)
       {
+        //移除[first,last）的元素,
         observation_list_.erase(obs_it, observation_list_.end());
         return;
       }
