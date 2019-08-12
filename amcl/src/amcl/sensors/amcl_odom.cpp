@@ -45,8 +45,10 @@ static double
 angle_diff(double a, double b)
 {
   double d1, d2;
+  //重新计算角度值
   a = normalize(a);
   b = normalize(b);
+  //把角度误差限定在[-pi,pi]
   d1 = a-b;
   d2 = 2*M_PI - fabs(d1);
   if(d1 > 0)
@@ -120,7 +122,9 @@ bool AMCLOdom::UpdateAction(pf_t *pf, AMCLSensorData *data)
   // Compute the new sample poses
   pf_sample_set_t *set;
 
+  //当前滤波器的样本集
   set = pf->sets + pf->current_set;
+  //old odom_pose
   pf_vector_t old_pose = pf_vector_sub(ndata->pose, ndata->delta);
 
   switch( this->model_type )
@@ -171,6 +175,7 @@ bool AMCLOdom::UpdateAction(pf_t *pf, AMCLSensorData *data)
     // Implement sample_motion_odometry (Prob Rob p 136)
     //运动模型在单个运动时刻的近似
     double delta_rot1, delta_trans, delta_rot2;
+    //预测值xt
     double delta_rot1_hat, delta_trans_hat, delta_rot2_hat;
     double delta_rot1_noise, delta_rot2_noise;
 

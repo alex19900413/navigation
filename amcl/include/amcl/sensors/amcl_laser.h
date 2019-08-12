@@ -50,7 +50,9 @@ class AMCLLaserData : public AMCLSensorData
     virtual ~AMCLLaserData() {delete [] ranges;};
   // Laser range data (range, bearing tuples)
   public: int range_count;
+  //最大测量距离
   public: double range_max;
+  //用于保存距离信息，以及角度信息
   public: double (*ranges)[2];
 };
 

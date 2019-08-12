@@ -158,7 +158,7 @@ class MapServer
           ROS_ERROR("The map does not contain an image tag or it is invalid.");
           exit(-1);
         }
-      } else {
+      } else {  //如果没有使用yaml文件
         private_nh.param("negate", negate, 0);
         private_nh.param("occupied_thresh", occ_th, 0.65);
         private_nh.param("free_thresh", free_th, 0.196);
@@ -187,7 +187,7 @@ class MapServer
                map_resp_.map.info.height,
                map_resp_.map.info.resolution);
       meta_data_message_ = map_resp_.map.info;
-
+      //发布了一个地图服务，下面还同样发布了地图topic
       service = n.advertiseService("static_map", &MapServer::mapCallback, this);
       //pub = n.advertise<nav_msgs::MapMetaData>("map_metadata", 1,
 
@@ -196,6 +196,7 @@ class MapServer
       metadata_pub.publish( meta_data_message_ );
 
       // Latched publisher for data
+      //队列中保存了一张map，这个topic是默认全局命名空间的
       map_pub = n.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
       map_pub.publish( map_resp_.map );
     }

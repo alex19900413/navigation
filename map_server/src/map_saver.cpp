@@ -74,11 +74,12 @@ class MapGenerator
       for(unsigned int y = 0; y < map->info.height; y++) {
         for(unsigned int x = 0; x < map->info.width; x++) {
           unsigned int i = x + (map->info.height - y - 1) * map->info.width;
-          if (map->data[i] >= 0 && map->data[i] <= threshold_free_) { //occ [0,0.1)
+          //0-45写入254，55-100写入0,45-55写入205，pgm里保存的格式有些意思，可以参考下笔记cartographer/建图
+          if (map->data[i] >= 0 && map->data[i] <= threshold_free_) { //occ [0,0.1) 用来保存free值，254实际上跟free没关系
             fputc(254, out);
           } else if (map->data[i] <= 100 && map->data[i] >= threshold_occupied_) { //occ (0.65,1]
             fputc(000, out);
-          } else { //occ [0.1,0.65]
+          } else { //occ [0.1,0.65] 未知区域
             fputc(205, out);
           }
         }

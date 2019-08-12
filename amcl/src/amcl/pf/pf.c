@@ -47,17 +47,22 @@ pf_t *pf_alloc(int min_samples, int max_samples,
                pf_init_model_fn_t random_pose_fn, void *random_pose_data)
 {
   int i, j;
-  pf_t *pf;
+  //粒子滤波器
+  pf_t *pf; 
+  //粒子集合
   pf_sample_set_t *set;
+  //粒子
   pf_sample_t *sample;
   
   srand48(time(NULL));
 
+  //分配粒子空间，并初始化滤波器相关参数
   pf = calloc(1, sizeof(pf_t));
-
+    
   pf->random_pose_fn = random_pose_fn;
   pf->random_pose_data = random_pose_data;
 
+  //用户给定，默认是500,2000
   pf->min_samples = min_samples;
   pf->max_samples = max_samples;
 
@@ -146,7 +151,7 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
 
   set->sample_count = pf->max_samples;
 
-  //根据提供的期望和方差,创建高斯概率密度函数
+  //根据提供的期望和方差,创建高斯概率密度函数。就是根据初始位姿和协方差，在初始位姿附近生成一堆粒子
   pdf = pf_pdf_gaussian_alloc(mean, cov);
     
   // Compute the new sample poses
@@ -155,9 +160,11 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
   {
     sample = set->samples + i;
     sample->weight = 1.0 / pf->max_samples;
+    //就是根据初始位姿和协方差，在给定的初始位姿附近生成一堆粒子
     sample->pose = pf_pdf_gaussian_sample(pdf);
 
     // Add sample to histogram
+    //将随机均匀采样的粒子加入到kdtree中
     pf_kdtree_insert(set->kdtree, sample->pose, sample->weight);
   }
 
@@ -271,6 +278,8 @@ void pf_update_action(pf_t *pf, pf_action_model_fn_t action_fn, void *action_dat
 
 #include <float.h>
 // Update the filter with some new sensor observation
+//粒子滤波器的更新。这里的data是激光雷达数据，sensor_fn是sensor观测模型，默认是似然域模型
+//这个函数就是更新w_slow,w_fast，并将粒子权重均一化
 void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_data)
 {
   int i;
@@ -278,15 +287,19 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
   pf_sample_t *sample;
   double total;
 
+  //粒子集合
   set = pf->sets + pf->current_set;
 
   // Compute the sample weights
+  //利用观测模型，测量粒子的总权重，并根据sensor数据，更新粒子的权重。更新完了，下面又把他们给归一化是干啥呢？归一化不等于均值化
   total = (*sensor_fn) (sensor_data, set);
   
+  //似然域模型算出来的概率，什么时候会小于等于0呢？
   if (total > 0.0)
   {
     // Normalize weights
-    //将各粒子集的权值归一化
+    //将各粒子集的权值归一化，不是均值化。各个粒子权值还是不一样的
+    //因为有些粒子权值可能会超过1.0，重新将粒子权值设置到0-1范围
     double w_avg=0.0;
     for (i = 0; i < set->sample_count; i++)
     {
@@ -294,13 +307,16 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
       w_avg += sample->weight;
       sample->weight /= total;
     }
+
     // Update running averages of likelihood of samples (Prob Rob p258)
-    //更新短期似然平均与长期似然平均
+    //更新 短期似然平均 与 长期似然平均
+    //只有当w_fast < w_slow时，才会将两者置0.并均匀采样粒子。
     w_avg /= set->sample_count;
     if(pf->w_slow == 0.0)
       pf->w_slow = w_avg;
     else
       pf->w_slow += pf->alpha_slow * (w_avg - pf->w_slow);
+
     if(pf->w_fast == 0.0)
       pf->w_fast = w_avg;
     else
@@ -310,7 +326,7 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
   }
   else
   {
-    // Handle zero total
+    // Handle zero total.如果等于0，则均值化处理粒子权重
     for (i = 0; i < set->sample_count; i++)
     {
       sample = set->samples + i;
@@ -322,7 +338,18 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
 }
 
 
+
+
+
+
+
+
+
+
+
+
 // Resample the distribution
+//低方差重采样+KLD边界，用第二个set重采样，然后将结果保存到第一个set中
 void pf_update_resample(pf_t *pf)
 {
   int i;
@@ -333,6 +360,7 @@ void pf_update_resample(pf_t *pf)
   //double r,c,U;
   //int m;
   //double count_inv;
+  //保存了set_a的粒子的权重
   double* c;
 
   double w_diff;
@@ -343,9 +371,10 @@ void pf_update_resample(pf_t *pf)
   // Build up cumulative probability table for resampling.
   // TODO: Replace this with a more efficient procedure
   // (e.g., http://www.network-theory.co.uk/docs/gslref/GeneralDiscreteDistributions.html)
+
   c = (double*)malloc(sizeof(double)*(set_a->sample_count+1));
   c[0] = 0.0;
-  for(i=0;i<set_a->sample_count;i++)
+  for(i=0;i<set_a->sample_count;i++)//权值累积
     c[i+1] = c[i]+set_a->samples[i].weight;
 
   // Create the kd tree for adaptive sampling
@@ -356,6 +385,7 @@ void pf_update_resample(pf_t *pf)
   set_b->sample_count = 0;
 
   w_diff = 1.0 - pf->w_fast / pf->w_slow;
+  //如果w_fast > w_slow，则什么都不做
   if(w_diff < 0.0)
     w_diff = 0.0;
   //printf("w_diff: %9.6f\n", w_diff);
@@ -370,12 +400,17 @@ void pf_update_resample(pf_t *pf)
   i = 0;
   m = 0;
   */
+  //低方差重采样，就是在已有的样本中挑选。粒子权重在前面更新过了，所以权重高的粒子会被比较大的概率随机提取
   while(set_b->sample_count < pf->max_samples)
   {
     sample_b = set_b->samples + set_b->sample_count++;
 
+    //如果w_fast > w_slow,则w_diff等于0，则会执行else
+    //如果w_fast下降的w_slow更快，即有可能位置被绑架了，则会在全局地图中采用均匀采样，增加随机粒子
+    //0-1之间均匀分布的随机数，按照概率增加，w_diff越大，增加粒子的可能性也越大
     if(drand48() < w_diff)
-      sample_b->pose = (pf->random_pose_fn)(pf->random_pose_data);
+      //增加随机分布粒子，重采样
+      sample_b->pose = (pf->random_pose_fn)(pf->random_pose_data);  
     else
     {
       // Can't (easily) combine low-variance sampler with KLD adaptive
@@ -403,8 +438,12 @@ void pf_update_resample(pf_t *pf)
       */
 
       // Naive discrete event sampler
+      //离散采样器
       double r;
+      //drand48 返回服从均匀分布的·[0.0, 1.0) 之间的 double 型随机数
       r = drand48();
+      //变量i不是for循环的局部变量，是函数的局部变量
+      //如果跳出循环，说明两个粒子权值差别较大，
       for(i=0;i<set_a->sample_count;i++)
       {
         if((c[i] <= r) && (r < c[i+1]))
@@ -417,27 +456,32 @@ void pf_update_resample(pf_t *pf)
       assert(sample_a->weight > 0);
 
       // Add sample to list
+      //在一个即生成随机数位置增加一个粒子，某个位置附近粒子数越多或者权重越大，这个位置生成重采样的粒子概率越大
       sample_b->pose = sample_a->pose;
     }
 
+    //把采样得到的位姿的权重，设置为1
     sample_b->weight = 1.0;
     total += sample_b->weight;
 
     // Add sample to histogram
+    //将样本添加到直方图，关于位姿的二叉树
     pf_kdtree_insert(set_b->kdtree, sample_b->pose, sample_b->weight);
 
     // See if we have enough samples yet
+    //如果采样到足够多的粒子，那就退出采样。kld采样边界
     if (set_b->sample_count > pf_resample_limit(pf, set_b->kdtree->leaf_count))
       break;
   }
   
   // Reset averages, to avoid spiraling off into complete randomness.
+  //避免进入完全的随机采样
   if(w_diff > 0.0)
     pf->w_slow = pf->w_fast = 0.0;
 
   //fprintf(stderr, "\n\n");
 
-  // Normalize weights
+  // Normalize weights，//重采样以后每个粒子权重=1 / M，前面把权重都设置为了1.0 了
   for (i = 0; i < set_b->sample_count; i++)
   {
     sample_b = set_b->samples + i;
@@ -445,11 +489,14 @@ void pf_update_resample(pf_t *pf)
   }
   
   // Re-compute cluster statistics
+  //聚类，得到均值和方差等信息，将相近的一堆粒子融合成一个粒子
   pf_cluster_stats(pf, set_b);
 
-  // Use the newly created sample set
+  // Use the newly created sample set/
+  //得到新粒子集。即用第一个set保存新采样的set
   pf->current_set = (pf->current_set + 1) % 2; 
 
+  //计算滤波器是否收敛
   pf_update_converged(pf);
 
   free(c);
@@ -457,8 +504,18 @@ void pf_update_resample(pf_t *pf)
 }
 
 
+
+
+
+
+
+
+
+
+
 // Compute the required number of samples, given that there are k bins
 // with samples in them.  This is taken directly from Fox et al.
+//KLD采样的统计边界
 int pf_resample_limit(pf_t *pf, int k)
 {
   double a, b, c, x;
@@ -474,6 +531,7 @@ int pf_resample_limit(pf_t *pf, int k)
 
   n = (int) ceil((k - 1) / (2 * pf->pop_err) * x * x * x);
 
+  //使得粒子数范围总在[min_samples, max_samples]之间。但是这个返回值有啥意义呢？
   if (n < pf->min_samples)
     return pf->min_samples;
   if (n > pf->max_samples)
@@ -652,6 +710,7 @@ void pf_get_cep_stats(pf_t *pf, pf_vector_t *mean, double *var)
 
 
 // Get the statistics for a particular cluster.
+//获取权值最高的坐标点进行聚类，然后对高权值的聚类内的点求平均值，即当前机器人所在的位姿
 int pf_get_cluster_stats(pf_t *pf, int clabel, double *weight,
                          pf_vector_t *mean, pf_matrix_t *cov)
 {

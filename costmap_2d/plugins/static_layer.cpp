@@ -99,7 +99,7 @@ void StaticLayer::onInitialize()
 
     ROS_INFO("Received a %d X %d map at %f m/pix", getSizeInCellsX(), getSizeInCellsY(), getResolution());
 
-    //这里跟上面订阅到map有啥区别呢？
+    //这里跟上面订阅到map有啥区别呢？默认false，没有订阅
     if (subscribe_to_updates_)
     {
       ROS_INFO("Subscribing to updates");
@@ -150,13 +150,13 @@ void StaticLayer::matchSize()
 unsigned char StaticLayer::interpretValue(unsigned char value)
 {
   // check if the static value is above the unknown or lethal thresholds
-  if (track_unknown_space_ && value == unknown_cost_value_)
+  if (track_unknown_space_ && value == unknown_cost_value_) //对的，-1表示unknown space
     return NO_INFORMATION;
   else if (!track_unknown_space_ && value == unknown_cost_value_)
     return FREE_SPACE;
   else if (value >= lethal_threshold_)  //100
     return LETHAL_OBSTACLE;
-  else if (trinary_costmap_)
+  else if (trinary_costmap_)  //0的保存为free
     return FREE_SPACE;
 
   double scale = (double) value / lethal_threshold_;

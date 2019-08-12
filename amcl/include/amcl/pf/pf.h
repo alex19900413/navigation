@@ -127,18 +127,21 @@ typedef struct _pf_t
   // The sample sets.  We keep two sets and use [current_set]
   // to identify the active set.
   int current_set;
+  //定义两个set，是为了方便重采样，第一个set是上一周期的采样粒子，第二个set保存当前周期的采样粒子
   pf_sample_set_t sets[2];
 
   // Running averages, slow and fast, of likelihood
+  //长期平均似然，短期平均似然
   double w_slow, w_fast;
 
   // Decay rates for running averages
+  //长期的指数滤波器衰减率，短期的指数滤波器衰减率
   double alpha_slow, alpha_fast;
 
   // Function used to draw random pose samples
   //随机粒子生成函数
   pf_init_model_fn_t random_pose_fn;
-  //随机位姿,这个是map_t类型,在地图上随机撒粒子
+  //随机位姿,这个是map_t类型,是random_pose_fn的一个参数，用于在random_pose_data数据范围内随机撒粒子
   void *random_pose_data;
 
   double dist_threshold; //distance threshold in each axis over which the pf is considered to not be converged

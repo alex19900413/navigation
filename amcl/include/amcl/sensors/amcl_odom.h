@@ -44,6 +44,7 @@ typedef enum
 } odom_model_t;
 
 // Odometric sensor data
+//里程计这里的位姿，还有位姿变化量
 class AMCLOdomData : public AMCLSensorData
 {
   // Odometric pose

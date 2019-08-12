@@ -318,6 +318,7 @@ std::vector<std::pair<int,int> > AmclNode::free_space_indices;
 
 #define USAGE "USAGE: amcl"
 
+//如果用std::shared_ptr的话，那得用std::make_shared创建
 boost::shared_ptr<AmclNode> amcl_node_ptr;
 
 void sigintHandler(int sig)
@@ -403,9 +404,10 @@ AmclNode::AmclNode() :
   private_nh_.param("init_angle", init_angle_, 0.0);
 
   // Grab params off the param server
-  //判断是否订阅地图信息,默认不使用
+  //当设置为true时，AMCL将会订阅map话题，而不是调用服务返回地图。也就是说，当设置为true时，有另外一个节点实时的发布map话题，也就是机器人在实时的进行地图构建，并供给amcl话题使用；
+  //当设置为false时，通过map server，也就是调用已经构建完成的地图。在navigation 1.4.2中新加入的参数。
   private_nh_.param("use_map_topic", use_map_topic_, false);
-  //设置为false,每次订阅到地图信息就更新
+  //当设置为true时，AMCL将仅仅使用订阅的第一个地图，而不是每次接收到新的时更新为一个新的地图，在navigation 1.4.2中新加入的参数
   private_nh_.param("first_map_only", first_map_only_, false);
 
   //只有save_pose_period用到
@@ -413,26 +415,36 @@ AmclNode::AmclNode() :
   //大多设置为10Hz,但是很奇怪,这个参数没有被用到
   private_nh_.param("gui_publish_rate", tmp, -1.0);
   gui_publish_period = ros::Duration(1.0/tmp);
+  //存储上一次估计的位姿和协方差到参数服务器的最大速率。被保存的位姿将会用在连续的运动上来初始化滤波器。-1.0失能。
   private_nh_.param("save_pose_rate", tmp, 0.5);
   //设置多久保存一次位姿数据,默认2Hz
   save_pose_period = ros::Duration(1.0/tmp);
-  //激光雷达相关参数
+  //激光雷达相关参数,被考虑的最小扫描范围；参数设置为-1.0时，将会使用激光上报的最小扫描范围
   private_nh_.param("laser_min_range", laser_min_range_, -1.0);
   private_nh_.param("laser_max_range", laser_max_range_, -1.0);
+  //更新滤波器时，每次扫描中多少个等间距的光束被使用（减小计算量，测距扫描中相邻波束往往不是独立的可以减小噪声影响，太小也会造成信息量少定位不准）
   private_nh_.param("laser_max_beams", max_beams_, 30);
-  //粒子滤波器参数
+  //粒子滤波器参数，重采样参数，设置采样的粒子区间
   private_nh_.param("min_particles", min_particles_, 100);
   private_nh_.param("max_particles", max_particles_, 5000);
-  //如下两个是粒子滤波器参数，叫做粒子群参数
+  //真实分布和估计分布之间的最大误差，默认0.01
   private_nh_.param("kld_err", pf_err_, 0.01);
+  //上标准分位数（1-p），其中p是估计分布上误差小于kld_err的概率，默认0.99
   private_nh_.param("kld_z", pf_z_, 0.99);
-  //里程计模型参数
+
+  //里程计模型参数。因为这些噪声才导致里程计乱跳吧
+  //指定由机器人运动部分的 旋转分量估计的里程计旋转的期望噪声，默认0.2（旋转存在旋转噪声）
   private_nh_.param("odom_alpha1", alpha1_, 0.2);
+  //制定由机器人运动部分的 平移分量估计的里程计旋转的期望噪声，默认0.2（旋转中可能出现平移噪声）
   private_nh_.param("odom_alpha2", alpha2_, 0.2);
+  //指定由机器人运动部分的 平移分量估计的里程计平移的期望噪声，默认0.2（类似上）
   private_nh_.param("odom_alpha3", alpha3_, 0.2);
+  //指定由机器人运动部分的 旋转分量估计的里程计平移的期望噪声，默认0.2（类似上）
   private_nh_.param("odom_alpha4", alpha4_, 0.2);
+  //平移相关的噪声参数（仅用于模型是“omni”的情况--wiki官网的注释）
   private_nh_.param("odom_alpha5", alpha5_, 0.2);
-  //如下四个参数都是激光雷达似然函数参数
+
+  //如下四个参数都是激光雷达LASER_MODEL_LIKELIHOOD_FIELD_PROB模型参数
   private_nh_.param("do_beamskip", do_beamskip_, false);
   private_nh_.param("beam_skip_distance", beam_skip_distance_, 0.5);
   private_nh_.param("beam_skip_threshold", beam_skip_threshold_, 0.3);
@@ -444,13 +456,32 @@ AmclNode::AmclNode() :
   {
     private_nh_.param("beam_skip_error_threshold", beam_skip_error_threshold_, 0.9);
   }
-  //如下是激光雷达模型参数
+
+  //如下是激光雷达LASER_MODEL_BEAM 和 LASER_MODEL_LIKELIHOOD_FIELD 模型参数
+
+  //模型的z_hit部分的混合权值，默认0.95(混合权重1.具有局部测量噪声的正确范围--以测量距离近似真实距离为均值，其后laser_sigma_hit为标准偏差的高斯分布的权重)
   private_nh_.param("laser_z_hit", z_hit_, 0.95);
+
+  //模型的z_short部分的混合权值，默认0.1（混合权重2.意外对象权重（类似于一元指数关于y轴对称0～测量距离（非最大距离）的部分：--ηλe^(-λz)，其余部分为0
+  //其中η为归一化参数，λ为laser_lambda_short,z为t时刻的一个独立测量值（一个测距值，测距传感器一次测量通常产生一系列的测量值）），动态的环境，如人或移动物体）
   private_nh_.param("laser_z_short", z_short_, 0.1);
+  //模型的z_max部分的混合权值，默认0.05（混合权重3.测量失败权重（最大距离时为1，其余为0），如声呐镜面反射，激光黑色吸光对象或强光下的测量，最典型的是超出最大距离）
   private_nh_.param("laser_z_max", z_max_, 0.05);
+  
+  //模型的z_rand部分的混合权值，默认0.05（混合权重4.随机测量权重--均匀分布（1平均分布到0～最大测量范围），完全无法解释的测量，如声呐的多次反射，传感器串扰）
+  //激光雷达是不是可以把这个参数调小一点？
   private_nh_.param("laser_z_rand", z_rand_, 0.05);
+  
+  //被用在模型的z_hit部分的高斯模型的 标准差，默认0.2m
   private_nh_.param("laser_sigma_hit", sigma_hit_, 0.2);
+  //模型z_short部分的指数衰减参数，默认0.1（根据ηλe^(-λz)，λ越大随距离增大意外对象概率衰减越快）
   private_nh_.param("laser_lambda_short", lambda_short_, 0.1);
+  //地图上做障碍物膨胀的最大距离，用作likelihood_field模型（likelihood_field_range_finder_model只描述了最近障碍物的距离
+  //目前理解应该是在这个距离内的障碍物膨胀处理,但是算法里又没有提到膨胀，不明确是什么意思
+  //这里算法用到上面的laser_sigma_hit。似然域计算测量概率的算法是将t时刻的各个测量（舍去达到最大测量范围的测量值）的概率相乘
+  //单个测量概率：Zh * prob(dist,σ) +avg，Zh为laser_z_hit,avg为均匀分布概率，dist最近障碍物的距离，prob为0为中心标准方差为σ（laser_sigma_hit）的高斯分布的距离概率）
+  
+  //在地图上进行障碍物膨胀的最大距离
   private_nh_.param("laser_likelihood_max_dist", laser_likelihood_max_dist_, 2.0);
   std::string tmp_model_type;
   private_nh_.param("laser_model_type", tmp_model_type, std::string("likelihood_field"));
@@ -458,7 +489,7 @@ AmclNode::AmclNode() :
     laser_model_type_ = LASER_MODEL_BEAM;
   else if(tmp_model_type == "likelihood_field")
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD;
-  else if(tmp_model_type == "likelihood_field_prob"){
+  else if(tmp_model_type == "likelihood_field_prob"){//likehood_field_prob（和likehood_field一样但是融合了beamskip特征--官网的注释）
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD_PROB;
   }
   else
@@ -468,7 +499,7 @@ AmclNode::AmclNode() :
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD;
   }
 
-  //里程计模型参数
+  //模型使用，可以是"diff", "omni", "diff-corrected", "omni-corrected",后面两个是对老版本里程计模型的矫正，相应的里程计参数需要做一定的减小
   private_nh_.param("odom_model_type", tmp_model_type, std::string("diff"));
   if(tmp_model_type == "diff")
     odom_model_type_ = ODOM_MODEL_DIFF;
@@ -484,20 +515,27 @@ AmclNode::AmclNode() :
              tmp_model_type.c_str());
     odom_model_type_ = ODOM_MODEL_DIFF;
   }
+
   //下两个参数用来给粒子滤波器做判断，是否需要更新.即位置偏差0.2m,角度偏差30度,则更新一下滤波器
   //提高粒子滤波器的更新速度, 是不是就不容易丢失位置了?
   private_nh_.param("update_min_d", d_thresh_, 0.2);
   private_nh_.param("update_min_a", a_thresh_, M_PI/6.0);
-  //
+  
   private_nh_.param("odom_frame_id", odom_frame_id_, std::string("odom"));
   private_nh_.param("base_frame_id", base_frame_id_, std::string("base_link"));
   private_nh_.param("global_frame_id", global_frame_id_, std::string("map"));
-  //重分类的频率
+  //重采样的频率
   private_nh_.param("resample_interval", resample_interval_, 2);
   double tmp_tol;
+  //tf变换发布推迟的时间，为了说明tf变换在未来时间内是可用的
   private_nh_.param("transform_tolerance", tmp_tol, 0.1);
+  
+  //这两个值是amcl算法中非常关键的参数，在pf.c中有应用。
+  //慢速的平均权重滤波的指数衰减频率，用作决定什么时候通过增加随机位姿来recover，默认0（disable），可能0.001是一个不错的值
   private_nh_.param("recovery_alpha_slow", alpha_slow_, 0.001);
+  //快速的平均权重滤波的指数衰减频率，用作决定什么时候通过增加随机位姿来recover，默认0（disable），可能0.1是个不错的值
   private_nh_.param("recovery_alpha_fast", alpha_fast_, 0.1);
+
   private_nh_.param("tf_broadcast", tf_broadcast_, true);
 
   transform_tolerance_.fromSec(tmp_tol);
@@ -515,31 +553,36 @@ AmclNode::AmclNode() :
 
   //将这个变量初始化为1s
   cloud_pub_interval.fromSec(1.0);
-  //用来发布map到odom的tf变换. 所以odom的位姿在amcl里被更新了?  不是, 应该是map与odom之间的tf被更新了.根据odom与map的tf,从而知道机器人的位置/实际上是先知道base_link在map中的位置，再推出map_to_odom
+  //用来发布map到odom的tf变换. 所以odom的位姿在amcl里被更新了? 粒子滤波后就更新了啊
   tfb_ = new tf::TransformBroadcaster();
   //tf坐标变换订阅者，订阅tf变化topic，调用transfromPoint来完成tf变换
   tf_ = new TransformListenerWrapper();
   
   //发布“后验位姿”pose,还有6x6的协方差矩阵（xyz，3个转角）
   pose_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("amcl_pose", 2, true);
-  //发布“粒子位姿数组”
+  //发布“粒子位姿数组”,一开始还蛮分散的，但是后面会逐渐收敛成一小撮
   particlecloud_pub_ = nh_.advertise<geometry_msgs::PoseArray>("particlecloud", 2, true);
+
   //发布服务，目的是在没有给定初始位姿的情况下，在全局范围内初始化粒子位姿.使用的是均匀粒子滤波
+  //这个就是重定位功能哈
   global_loc_srv_ = nh_.advertiseService("global_localization", 
 					 &AmclNode::globalLocalizationCallback,
                                          this);
-  //发布服务，没运动模型更新的情况下，也暂时更新粒子群,回调函数只是更新了一个flag,暂时没看到怎么更新的
-  //就是设置一个标志位,当其为true时,粒子滤波器会更新
+  //发布服务std_srvs/Empty，没运动模型更新的情况下，也暂时更新粒子群,回调函数只是更新了一个flag,暂时没看到怎么更新的
+  //就是设置一个标志位,当其为true时,粒子滤波器会更新。从名字可以看出，no-motion-update
+  //一般的更新条件是机器人有移动一段最小距离，才会触发laser观测值去更新.这两个服务放一起，就是用来重定位的啊
   nomotion_update_srv_= nh_.advertiseService("request_nomotion_update", &AmclNode::nomotionUpdateCallback, this);
   
   //处理地图请求,重新初始化位姿.根据req提供map和initpos,更新地图和初始位姿
+  //nav_msgs/Setmap.需要提供 地图 和 初始位姿，这个用于地图切换功能吧。可以在切换地图的同时，调用
   set_map_srv_= nh_.advertiseService("set_map", &AmclNode::setMapCallback, this);
+
   //这里用了message_filter的方式，订阅话题为scan_topic_，但是，并没有用得到时间同步
-  //如下这三个函数，是里程计和激光雷达的融合
   laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
-  //调用tf变换，将激光雷达的数据，转到odom下
+  
+  //类似上面的message_filters方式，只不过这里调用tf变换，把sensor_id的数据，转到对应的frame_id下
   //注意，这里使用了tf::MessageFilter，传入的参数1是message_filter,一般是message_filter::Subscriber，参数2是tf_listener,参数3是target_frame，参数4是频率
-  //input_frame由第一个参数提供
+  //input_frame由第一个参数提供.奇了怪了，为啥把laser转到odom坐标系，而不是map呢？
   laser_scan_filter_ = 
           new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_, 
                                                         *tf_, 
@@ -550,11 +593,13 @@ AmclNode::AmclNode() :
                                                    this, _1));
   //直接订阅uwb的数据,用作初始定位
   uwb_pose_sub_ = nh_.subscribe("uwb", 2, &AmclNode::uwbPoseReceived, this);
+
   //订阅初始化位姿，这个位姿一般是rviz里手动给的                                                 
   initial_pose_sub_ = nh_.subscribe("initialpose", 2, &AmclNode::initialPoseReceived, this);
 
   //除了发布地图服务外, 还可以订阅map话题, 用于更新全局地图.一般默认为false
   //map_server也会发布一个map的topic,其实这里true和false的效果一样
+  //都会调用handleMapMessage函数来处理地图数据
   if(use_map_topic_) {
     map_sub_ = nh_.subscribe("map", 1, &AmclNode::mapReceived, this);
     ROS_INFO("Subscribed to map topic.");
@@ -564,7 +609,7 @@ AmclNode::AmclNode() :
   }
   m_force_update = false;
 
-  //调用动态参数配置
+  //调用动态参数配置。更新了参数，所以也还需要重新初始化滤波器，位置，message_filter等
   dsrv_ = new dynamic_reconfigure::Server<amcl::AMCLConfig>(ros::NodeHandle("~"));
   dynamic_reconfigure::Server<amcl::AMCLConfig>::CallbackType cb = boost::bind(&AmclNode::reconfigureCB, this, _1, _2);
   dsrv_->setCallback(cb);
@@ -697,7 +742,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   pf_init_pose_cov.m[1][1] = last_published_pose.pose.covariance[6*1+1];
   //这里是yaw的协方差
   pf_init_pose_cov.m[2][2] = last_published_pose.pose.covariance[6*5+5];
-  //2,初始化粒子滤波器
+  //2,初始化粒子滤波器。只会在地图更新，参数更新，位姿更新的时候，才会重新初始化滤波器。所以才需要把位姿保存在参数服务器中
   pf_init(pf_, pf_init_pose_mean, pf_init_pose_cov);
   pf_init_ = false;
 
@@ -715,7 +760,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   if(laser_model_type_ == LASER_MODEL_BEAM)
     laser_->SetModelBeam(z_hit_, z_short_, z_max_, z_rand_,
                          sigma_hit_, lambda_short_, 0.0);
-  else if(laser_model_type_ == LASER_MODEL_LIKELIHOOD_FIELD_PROB){
+  else if(laser_model_type_ == LASER_MODEL_LIKELIHOOD_FIELD_PROB){  //这个在概率机器人学中没有找到
     ROS_INFO("Initializing likelihood field model; this can take some time on large maps...");
     laser_->SetModelLikelihoodFieldProb(z_hit_, z_rand_, sigma_hit_,
 					laser_likelihood_max_dist_, 
@@ -725,6 +770,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   }
   else if(laser_model_type_ == LASER_MODEL_LIKELIHOOD_FIELD){
     ROS_INFO("Initializing likelihood field model; this can take some time on large maps...");
+    //考虑了测量噪声，随机噪声，测量失败这三种噪声。是不是可以根据激光雷达的性能来调整这些参数？
     laser_->SetModelLikelihoodField(z_hit_, z_rand_, sigma_hit_,
                                     laser_likelihood_max_dist_);
     ROS_INFO("Done initializing likelihood field model.");
@@ -859,14 +905,13 @@ void AmclNode::runFromBag(const std::string &in_bag_fn)
 
 
 
-
-
-
 void AmclNode::savePoseToServer()
 {
   //the latest map pose to store.  We'll take the covariance from
   // last_published_po We need to apply the last transform to the latest odom pose to get
   // se.
+  //latest_tf是odom-> map,latest_odom_pose_是base_link在odom下坐标值,相乘(向量加法)得到map -> base_link?
+  //前者是粒子滤波重采样后，odom和map的tf变换。后者就是odom推算出来的base_link的坐标                                                                                                                                                                                                                                          
   tf::Pose map_pose = latest_tf_.inverse() * latest_odom_pose_;
   double yaw,pitch,roll;
   map_pose.getBasis().getEulerYPR(yaw, pitch, roll);
@@ -999,20 +1044,20 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
     ROS_WARN("Frame_id of map received:'%s' doesn't match global_frame_id:'%s'. This could cause issues with reading published topics",
              msg.header.frame_id.c_str(),
              global_frame_id_.c_str());
-  //清空所有依赖的内存,包括pf,odom,laser
+  //清空所有依赖的内存,包括map_,pf,odom,laser，因为这些指针都是与地图相关的
   freeMapDependentMemory();
   // Clear queued laser objects because they hold pointers to the existing
   // map, #5202.
-  //清空lasers相关的队列,map
+  //所有的这些都和map相关
   lasers_.clear();
   lasers_update_.clear();
   frame_to_laser_.clear();
 
   //就是将地图的网格的状态,设置为free,occupy,unknown这三种状态
-  //map是occupancyGrid类型的地图, 要转换为pf能够识别的类型
+  //map是occupancyGrid类型的地图, 跟map_server中的处理还不一样，这里-1是free，1是occupy，0是unknown
   map_ = convertMap(msg);
 
-//把地图中不是障碍的点保存下来，由于地图信息为-1的栅格是free，因此将空闲区域保存下来
+//把地图中不是障碍的点保存下来，由于地图信息为-1的栅格是free，因此将这一部分区域保存下来，用来全局撒粒子定位啊
 #if NEW_UNIFORM_SAMPLING
   // Index of free space
   free_space_indices.resize(0);
@@ -1041,6 +1086,7 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   pf_init_pose_cov.m[0][0] = init_cov_[0];
   pf_init_pose_cov.m[1][1] = init_cov_[1];
   pf_init_pose_cov.m[2][2] = init_cov_[2];
+  //只会在地图更新,参数更新，位姿更新的时候，才会重新初始化滤波器。所以才需要把位姿保存在参数服务器中
   pf_init(pf_, pf_init_pose_mean, pf_init_pose_cov);
   pf_init_ = false;
 
@@ -1056,6 +1102,7 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   delete laser_;
   laser_ = new AMCLLaser(max_beams_, map_);
   ROS_ASSERT(laser_);
+  //默认采用似然域模型
   if(laser_model_type_ == LASER_MODEL_BEAM)
     laser_->SetModelBeam(z_hit_, z_short_, z_max_, z_rand_,
                          sigma_hit_, lambda_short_, 0.0);
@@ -1067,7 +1114,7 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
 					beam_skip_threshold_, beam_skip_error_threshold_);
     ROS_INFO("Done initializing likelihood field model.");
   }
-  //激光数据与似然域模型
+  //激光数据的似然域模型
   else
   {
     ROS_INFO("Initializing likelihood field model; this can take some time on large maps...");
@@ -1078,6 +1125,7 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
 
   // In case the initial pose message arrived before the first map,
   // try to apply the initial pose now that the map has arrived.
+  //前面已经初始化滤波器了，这里再初始化一次
   applyInitialPose();
 
 }
@@ -1129,7 +1177,7 @@ AmclNode::convertMap( const nav_msgs::OccupancyGrid& map_msg )
   map->size_x = map_msg.info.width;
   map->size_y = map_msg.info.height;
   map->scale = map_msg.info.resolution;
-  //将地图的坐标原点(左下角),平移到了中心(原坐标原点在0,0,在地图yaml文件中定义的),估计这样做的目的，也是为了从中心点开始撒点，效果会更好一些？ 
+  //将地图的坐标原点(左下角),平移到了中心(原坐标原点在0,0,在地图yaml文件中定义的),但是在世界坐标系map中，那就不一定是中心了
   map->origin_x = map_msg.info.origin.position.x + (map->size_x / 2) * map->scale;
   map->origin_y = map_msg.info.origin.position.y + (map->size_y / 2) * map->scale;
   // Convert to player format
@@ -1159,18 +1207,18 @@ AmclNode::~AmclNode()
   // TODO: delete everything allocated in constructor
 }
 
-
+//base_link下odom的位姿
 bool
 AmclNode::getOdomPose(tf::Stamped<tf::Pose>& odom_pose,
                       double& x, double& y, double& yaw,
                       const ros::Time& t, const std::string& f)
 {
-  // Get the robot's pose
+  // Get the robot's pose，base_link
   tf::Stamped<tf::Pose> ident (tf::Transform(tf::createIdentityQuaternion(),
                                            tf::Vector3(0,0,0)), t, f);
   try
   {
-    //base_link -> odom
+    //输出base_link 在 odom下的坐标值
     this->tf_->transformPose(odom_frame_id_, ident, odom_pose);
   }
   catch(tf::TransformException e)
@@ -1187,6 +1235,14 @@ AmclNode::getOdomPose(tf::Stamped<tf::Pose>& odom_pose,
 
   return true;
 }
+
+
+
+
+
+
+
+
 
 //drand48返回服从均匀分布的·[0.0, 1.0) 之间的 double 型随机数
 //在循环中直到产生一个位置与方向都合法的粒子，退出循环
@@ -1232,7 +1288,15 @@ AmclNode::uniformPoseGenerator(void* arg)
   return p;
 }
 
+
+
+
+
+
+
+
 //这个函数不知道是干啥的, 反正没用到
+//这个不就是一直想找的重定位功能吗
 bool
 AmclNode::globalLocalizationCallback(std_srvs::Empty::Request& req,
                                      std_srvs::Empty::Response& res)
@@ -1242,13 +1306,18 @@ AmclNode::globalLocalizationCallback(std_srvs::Empty::Request& req,
   }
   boost::recursive_mutex::scoped_lock gl(configuration_mutex_);
   ROS_INFO("Initializing with uniform distribution");
-  //采用均匀模型初始化滤波器
+  //采用均匀模型初始化滤波器，这里是对整个map进行搜索，其实可以在这里修改一下，改成局部地图搜索
   pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
                 (void *)map_);
   ROS_INFO("Global initialisation done!");
   pf_init_ = false;
   return true;
 }
+
+
+
+
+
 
 // force nomotion updates (amcl updating without requiring motion)
 bool 
@@ -1311,6 +1380,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   // Do we have the base->base_laser Tx yet?
   //先是从frame_to_laser_这个map容器里中找寻scan，如果没在容器中找到该scan,那么就新建一个,添加到map容器中
   //如果在列表中,则得到其laser_index值,用于后面的pf update
+  //如果前后各装一个雷达，是不是就可以加快定位的过程，提高定位鲁棒性？
   if(frame_to_laser_.find(laser_scan->header.frame_id) == frame_to_laser_.end())
   {
     ROS_DEBUG("Setting up laser %d (frame_id=%s)\n", (int)frame_to_laser_.size(), laser_scan->header.frame_id.c_str());
@@ -1325,11 +1395,13 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     tf::Stamped<tf::Pose> ident (tf::Transform(tf::createIdentityQuaternion(),
                                              tf::Vector3(0,0,0)),
                                  ros::Time(), laser_scan->header.frame_id);
-    //laser_frame到base_link的位姿变换
+    //laser_frame到base_link的位姿变换。三角变换公式要求得到传感器在机器人坐标系下的坐标值
     tf::Stamped<tf::Pose> laser_pose;
+    
     try
     {
       //transform a Stamped pose into target_fram(first param),stamped_inf(sec param),stamped_out(third param)
+      //重新理解一下这个函数，是把laser下的位姿，转换到base_link下。所以这个laser_pose是laser在base_link下的坐标值
       this->tf_->transformPose(base_frame_id_, ident, laser_pose);
     }
     catch(tf::TransformException& e)
@@ -1360,9 +1432,16 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     laser_index = frame_to_laser_[laser_scan->header.frame_id];
   }
 
+
+
+
+
+
   // Where was the robot when this scan was taken?
   //这里是获取此时base_link到odom的位姿,保存在latest_odom_pose_中,同时保存在类型为pf_vector_t的pose中
   pf_vector_t pose;
+  //base_link下odom的位姿，将保存在参数服务器里的最后的位姿提取出来
+  //如果把这个理解成odom坐标系下，base_link的位姿，接下来一切都好理解了
   if(!getOdomPose(latest_odom_pose_, pose.v[0], pose.v[1], pose.v[2],
                   laser_scan->header.stamp, base_frame_id_))
   {
@@ -1386,17 +1465,19 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     bool update = fabs(delta.v[0]) > d_thresh_ ||
                   fabs(delta.v[1]) > d_thresh_ ||
                   fabs(delta.v[2]) > a_thresh_;
+    //如果调用了nomotionUpdateCallback服务，那就会强制更新
     update = update || m_force_update;
     m_force_update=false;
 
     // Set the laser update flags
+    //当机器人移动了一定距离后，那可以根据odom信息预测粒子的新的位置，然后再用传感器数据的观测模型，更新粒子权重
     if(update)
       for(unsigned int i=0; i < lasers_update_.size(); i++)
         lasers_update_[i] = true;
   }
 
   bool force_publication = false;
-  //收到scan的第一帧数据, 则将滤波器状态设置为true,其他啥都不干.如果不是第一帧了,就更新滤波器
+  //收到scan的第一帧数据, 则将滤波器状态设置为true,其他啥都不干.如果不是第一帧了,要强制更新一下滤波器
   if(!pf_init_)
   {
     // Pose at last filter update
@@ -1427,15 +1508,22 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     // HACK
     // Modify the delta in the action data so the filter gets
     // updated correctly
+    //里程计位姿变化量，等于这次位姿减去上次位姿
     odata.delta = delta;
 
     // Use the action data to update the filter
-    //这里是调用的关键，我们随后分析.估计得看概率机器人的书才行了
+    //这里是调用的关键，我们随后分析.估计是用odom的位姿来预测滤波器粒子接下来的位姿。这是先验值
     odom_->UpdateAction(pf_, (AMCLSensorData*)&odata);
 
     // Pose at last filter update
     //this->pf_odom_pose = pose;
   }
+
+
+
+
+
+
 
   bool resampled = false;
   // If the robot has moved, update the filter
@@ -1461,6 +1549,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     q.setRPY(0.0, 0.0, laser_scan->angle_min + laser_scan->angle_increment);
     tf::Stamped<tf::Quaternion> inc_q(q, laser_scan->header.stamp,
                                       laser_scan->header.frame_id);
+
     try
     {
       tf_->transformQuaternion(base_frame_id_, min_q, min_q);
@@ -1479,6 +1568,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
     // wrapping angle to [-pi .. pi]
     //fmod函数是用来取余数，fmod(float x, float y) = x % y
+    //如果增量大于pi，则会被修改为负值。如果小于pi，则保持不变。使得增量在[-pi,pi]区间
     angle_increment = fmod(angle_increment + 5*M_PI, 2*M_PI) - M_PI;
 
     ROS_DEBUG("Laser %d angles in base frame: min: %.3f inc: %.3f", laser_index, angle_min, angle_increment);
@@ -1487,8 +1577,9 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     //激光的最大最小值是可以设置的，不设置的话，就从激光原始数据中获得。这个值好像在laser的package中写死了的
     if(laser_max_range_ > 0.0)
       ldata.range_max = std::min(laser_scan->range_max, (float)laser_max_range_);
-    else
+    else//-1时默认使用激光雷达信息的max。似然域模型会丢掉最大距离的点
       ldata.range_max = laser_scan->range_max;
+
     double range_min;
     if(laser_min_range_ > 0.0)
       range_min = std::max(laser_scan->range_min, (float)laser_min_range_);
@@ -1498,6 +1589,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     // The AMCLLaserData destructor will free this memory
     ldata.ranges = new double[ldata.range_count][2];
     ROS_ASSERT(ldata.ranges);
+    //得到每个光束返回的距离信息，以及角度信息
     for(int i=0;i<ldata.range_count;i++)
     {
       // amcl doesn't (yet) have a concept of min range.  So we'll map short
@@ -1512,7 +1604,13 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       ldata.ranges[i][1] = angle_min +
               (i * angle_increment);
     }
+
+
+
+
+
     //对每个激光雷达数据进行更新，并计算出粒子的重要性权重并归一化
+    //选择观测模型，更新下粒子的权值，并更新w_slow,w_fast，均一化粒子的权值
     lasers_[laser_index]->UpdateSensor(pf_, (AMCLSensorData*)&ldata);
 
     //更新完了,将flag置为false
@@ -1528,6 +1626,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       resampled = true;
     }
 
+    //重采样后，样本数量应该是有变化的。去掉了一些权值低的粒子，增加了权值高的粒子
     pf_sample_set_t* set = pf_->sets + pf_->current_set;
     ROS_DEBUG("Num samples: %d\n", set->sample_count);
 
@@ -1560,6 +1659,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     std::vector<amcl_hyp_t> hyps;
     //所以粒子是聚类后保存起来的，而不是看单个粒子的权重
     hyps.resize(pf_->sets[pf_->current_set].cluster_count);
+
     //遍历聚类后的粒子集，选择权重最大的粒子集，该粒子集的平均位姿就是本次更新后的机器人估计位姿，以下的代码目的都是为了计算出权值最大的估计位姿并发送话题与TF变换
     for(int hyp_count = 0;
         hyp_count < pf_->sets[pf_->current_set].cluster_count; hyp_count++)
@@ -1568,7 +1668,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       //用来保存位姿
       pf_vector_t pose_mean;
       pf_matrix_t pose_cov;
-      //得到指定cluster的相关指标
+      //获取聚类clusters的状态
       if (!pf_get_cluster_stats(pf_, hyp_count, &weight, &pose_mean, &pose_cov))
       {
         ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
@@ -1579,7 +1679,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       hyps[hyp_count].pf_pose_mean = pose_mean;
       hyps[hyp_count].pf_pose_cov = pose_cov;
 
-      //更新最大权重的粒子群
+      //选择最大权重的cluster
       if(hyps[hyp_count].weight > max_weight)
       {
         max_weight = hyps[hyp_count].weight;
@@ -1588,6 +1688,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     }
 
     //聚类后的最大粒子群即最可能出现的位置.如果有了uwb的数据, 直接用uwb就可以了
+    //可以打印一下这个权重，看看效果如何。是否可以用作为重定位成功的一个判断依据
     if(max_weight > 0.0)
     {
       ROS_DEBUG("Max weight pose: %.3f %.3f %.3f",
@@ -1695,7 +1796,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
         //为什么要等这么长时间?
         ros::Time transform_expiration = (laser_scan->header.stamp +
                                           transform_tolerance_);
-        //map_to_odom
+        //map_to_odom，map下odom的坐标值
         tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(),
                                             transform_expiration,
                                             global_frame_id_, odom_frame_id_);
