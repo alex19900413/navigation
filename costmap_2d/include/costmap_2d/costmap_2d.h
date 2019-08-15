@@ -425,6 +425,7 @@ protected:
   unsigned int size_x_;
   unsigned int size_y_;
   double resolution_;
+  //全局坐标系下，地图坐标原点(左下角)的坐标值
   double origin_x_;
   double origin_y_;
   unsigned char* costmap_;

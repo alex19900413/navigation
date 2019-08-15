@@ -51,7 +51,10 @@ typedef struct
   double cxdet;
 
   // Decomposed covariance matrix (rotation * diagonal)
+  //如把3x3的协方差矩阵分解成3x3的矩阵或3x1的矩阵，虽然pose是6x6的，但是只需用到x，y，Θ三个轴的
+  //cr其实就是等于cx
   pf_matrix_t cr;
+  //diagonal对角线的值
   pf_vector_t cd;
 
   // A random number generator

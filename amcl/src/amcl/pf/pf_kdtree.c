@@ -222,9 +222,10 @@ int pf_kdtree_equal(pf_kdtree_t *self, int key_a[], int key_b[])
 /*
 self,指定kdtree
 parent，指定parent节点，主要是用来更新深度层的
-node，表示从哪个节点开始插入，一般是root。因为kdtree里有一个指针nodes，就是指向根节点
+node，表示从哪个节点开始插入，一般是root。如果是leaf节点，则要更新其pviot_value值
 key，待插入的pose
 value，权重
+return， 如果是插入新的leaf节点，则返回这个leaf节点。如果插入位置不是leaf节点，则返回被插入位置的节点
 */
 pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *parent,
                                         pf_kdtree_node_t *node, int key[], double value)
@@ -233,7 +234,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
   int split, max_split;
 
   // If the node doesnt exist yet...
-  //如一开始，树没有节点，先创建根节点。即node=root，parent=null
+  //如一开始，树没有节点，先创建根节点。后续添加新的leaf节点，插入节点位置都是NULL，生成新的leaf节点并返回(第二个循环)
   //如果指定了父节点，如node=null，parent=指定，那么创建的新的节点，就是parent的子节点
   if (node == NULL)
   {
@@ -258,10 +259,11 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
 
     node->value = value;
     //这是树的叶子节点总数量，根节点也是个叶子节点
-    self->leaf_count += 1;      //叶子节点为啥要加1？根节点也是叶子节点？
+    self->leaf_count += 1;      //叶子节点为啥要加1？这个循环下插入的节点就是叶子节点
   }
 
   // If the node exists, and it is a leaf node...
+  //node从root开始迭代，最终总是会到leaf节点的。到了这个节点，又会拆分成两个leaf节点
   else if (node->leaf)
   {
     // If the keys are equal, increment the value
@@ -278,7 +280,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       max_split = 0;
       node->pivot_dim = -1;
       //这里明明是选择了相差比较大的维度作为轴点的，并不是按层来的
-      //因为node定义了一个povit_dim来保存选则哪个维度的
+      //因为node定义了一个povit_dim来保存选则哪个维度的；选择key和node差值最大的维度作为待比较的维度
       for (i = 0; i < 3; i++)
       {
         split = abs(key[i] - node->key[i]);
@@ -290,13 +292,14 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
       }
       assert(node->pivot_dim >= 0);
 
+      //更新待插入位置node所在维度的值。这个值是key和node的均值
       node->pivot_value = (key[node->pivot_dim] + node->key[node->pivot_dim]) / 2.0;
       //将node作为父节点，讲node自身的key value与要插入的key value作为两个children传到下一层
       //children[0],表示左节点
       //为什么要把自身节点重新插入一下？    这也就出现了知乎作者提到了，如果插入n个点，树最多要2n的空间来保存
       if (key[node->pivot_dim] < node->pivot_value)
       {
-        //小于pivot值的话，就将其设置为node的左子节点，同事将节点自身的值复制到其右子节点
+        //小于pivot值的话，就将其设置为node的左子节点，同时将节点自身的值复制到其右子节点
         node->children[0] = pf_kdtree_insert_node(self, node, NULL, key, value);
         node->children[1] = pf_kdtree_insert_node(self, node, NULL, node->key, node->value);
       }
@@ -312,7 +315,7 @@ pf_kdtree_node_t *pf_kdtree_insert_node(pf_kdtree_t *self, pf_kdtree_node_t *par
   }
 
   // If the node exists, and it has children...
-  //如果不是叶子节点，即左右都有节点，那就继续往下插入
+  //如果不是叶子节点，即左右都有节点，那就会迭代下去，直到找到leaf节点
   else
   {
     assert(node->children[0] != NULL);

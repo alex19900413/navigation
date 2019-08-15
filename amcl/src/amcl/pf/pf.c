@@ -95,7 +95,7 @@ pf_t *pf_alloc(int min_samples, int max_samples,
     }
 
     // HACK: is 3 times max_samples enough?
-    //实际上这里放2倍就可以了,根据kdtree的定义
+    //实际上这里放2倍就可以了,根据kdtree的定义。而且采样真的会达到max_samples吗/一开始随机均匀采样就是用的最大值
     set->kdtree = pf_kdtree_alloc(3 * max_samples);
 
     set->cluster_count = 0;
@@ -295,11 +295,12 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
   total = (*sensor_fn) (sensor_data, set);
   
   //似然域模型算出来的概率，什么时候会小于等于0呢？
+  //将各粒子集的权值归一化，不是均值化。各个粒子权值还是不一样的
+  //因为有些粒子权值可能会超过1.0，重新将粒子权值设置到0-1范围
   if (total > 0.0)
   {
     // Normalize weights
-    //将各粒子集的权值归一化，不是均值化。各个粒子权值还是不一样的
-    //因为有些粒子权值可能会超过1.0，重新将粒子权值设置到0-1范围
+    //经验测量似然
     double w_avg=0.0;
     for (i = 0; i < set->sample_count; i++)
     {
@@ -400,7 +401,7 @@ void pf_update_resample(pf_t *pf)
   i = 0;
   m = 0;
   */
-  //低方差重采样，就是在已有的样本中挑选。粒子权重在前面更新过了，所以权重高的粒子会被比较大的概率随机提取
+  //这里不是低方差重采样，传统路线：离散采样器。粒子权重在前面更新过了，所以权重高的粒子会被比较大的概率随机提取
   while(set_b->sample_count < pf->max_samples)
   {
     sample_b = set_b->samples + set_b->sample_count++;
@@ -443,7 +444,6 @@ void pf_update_resample(pf_t *pf)
       //drand48 返回服从均匀分布的·[0.0, 1.0) 之间的 double 型随机数
       r = drand48();
       //变量i不是for循环的局部变量，是函数的局部变量
-      //如果跳出循环，说明两个粒子权值差别较大，
       for(i=0;i<set_a->sample_count;i++)
       {
         if((c[i] <= r) && (r < c[i+1]))
@@ -465,11 +465,12 @@ void pf_update_resample(pf_t *pf)
     total += sample_b->weight;
 
     // Add sample to histogram
-    //将样本添加到直方图，关于位姿的二叉树
+    //将样本添加到kdtree直方图，
     pf_kdtree_insert(set_b->kdtree, sample_b->pose, sample_b->weight);
 
     // See if we have enough samples yet
-    //如果采样到足够多的粒子，那就退出采样。kld采样边界
+    // 如果采样到足够多的粒子，那就退出采样。kld采样边界的k值为啥是kdtree的叶子节点数量，而不是总数量？
+    //边界也是随着set_b的增加而改变的，当set_b的粒子达到人为设定的min_samples范围时，Mx可能已经大于min_samples了
     if (set_b->sample_count > pf_resample_limit(pf, set_b->kdtree->leaf_count))
       break;
   }
@@ -521,6 +522,7 @@ int pf_resample_limit(pf_t *pf, int k)
   double a, b, c, x;
   int n;
 
+  //k是kdtree的leaf节点数量
   if (k <= 1)
     return pf->max_samples;
 
@@ -529,9 +531,10 @@ int pf_resample_limit(pf_t *pf, int k)
   c = sqrt(2 / (9 * ((double) k - 1))) * pf->pop_z;
   x = a - b + c;
 
+  //Mx，即达到统计界限所需要的粒子数
   n = (int) ceil((k - 1) / (2 * pf->pop_err) * x * x * x);
 
-  //使得粒子数范围总在[min_samples, max_samples]之间。但是这个返回值有啥意义呢？
+  //使得粒子数范围总在[min_samples, max_samples]之间。这是一个外部人为设定的边界限制
   if (n < pf->min_samples)
     return pf->min_samples;
   if (n > pf->max_samples)
@@ -542,6 +545,7 @@ int pf_resample_limit(pf_t *pf, int k)
 
 
 // Re-compute the cluster statistics for a sample set
+//聚类会更新粒子的协方差
 void pf_cluster_stats(pf_t *pf, pf_sample_set_t *set)
 {
   int i, j, k, cidx;

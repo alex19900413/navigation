@@ -209,6 +209,15 @@ namespace navfn {
     wy = costmap_->getOriginY() + my * costmap_->getResolution();
   }
 
+
+
+
+
+
+
+
+
+  //start是全局坐标系下的坐标
   bool NavfnROS::makePlan(const geometry_msgs::PoseStamped& start, 
       const geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& plan){
     return makePlan(start, goal, default_tolerance_, plan);
@@ -253,7 +262,8 @@ namespace navfn {
     //clear the starting cell within the costmap because we know it can't be an obstacle
     tf::Stamped<tf::Pose> start_pose;
     tf::poseStampedMsgToTF(start, start_pose);
-    //只是清除单个像素的value值
+    //只是清除机器人位姿出的单个像素的value值
+    //我就说了，这里的start_pose是全局位姿，而mx，my是局部位姿。实际上clear没有用start_pose
     clearRobotCell(start_pose, mx, my);
 
 #if 0
@@ -377,6 +387,19 @@ namespace navfn {
 
     return !plan.empty();
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   void NavfnROS::publishPlan(const std::vector<geometry_msgs::PoseStamped>& path, double r, double g, double b, double a){
     if(!initialized_){

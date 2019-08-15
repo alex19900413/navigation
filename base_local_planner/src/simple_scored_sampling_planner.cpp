@@ -100,7 +100,7 @@ namespace base_local_planner {
       TrajectorySampleGenerator* gen_ = *loop_gen;
       //遍历所有轨迹
       while (gen_->hasMoreTrajectories()) {
-        //生成一条新的轨迹loop_traj
+        //根据simple_trajectory_generator中采样的速度，生成一条新的轨迹loop_traj
         gen_success = gen_->nextTrajectory(loop_traj);
         if (gen_success == false) {
           // TODO use this for debugging

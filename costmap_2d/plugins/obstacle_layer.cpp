@@ -67,7 +67,7 @@ void ObstacleLayer::onInitialize()
   else
     default_value_ = FREE_SPACE;
 
-  //更新了地图的大小
+  //更新了地图的大小.如果是local_costmap，那大小应该在哪儿初始化呢？
   ObstacleLayer::matchSize();
   current_ = true;
 
@@ -590,7 +590,7 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
   }
 
   // we can pre-compute the enpoints of the map outside of the inner loop... we'll need these later
-  //在内循环外先预计算地图的端点
+  //在内循环外先预计算地图的端点，这里origin_x_未赋值，初始化为0
   double origin_x = origin_x_, origin_y = origin_y_;
   double map_end_x = origin_x + size_x_ * resolution_;
   double map_end_y = origin_y + size_y_ * resolution_;

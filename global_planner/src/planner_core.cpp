@@ -221,6 +221,18 @@ bool GlobalPlanner::worldToMap(double wx, double wy, double& mx, double& my) {
     return false;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
                            std::vector<geometry_msgs::PoseStamped>& plan) {
     return makePlan(start, goal, default_tolerance_, plan);
@@ -229,7 +241,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
 bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
                            double tolerance, std::vector<geometry_msgs::PoseStamped>& plan) {
     boost::mutex::scoped_lock lock(mutex_);
-    //这个初始化变量是指的什么?
+    //这个初始化变量是指的什么?全局规划器是否初始化成功
     if (!initialized_) {
         ROS_ERROR(
                 "This planner has not been initialized yet, but it is being used, please call initialize() before use");
@@ -259,6 +271,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
     double wx = start.pose.position.x;
     double wy = start.pose.position.y;
 
+    //地图坐标系下的坐标值
     unsigned int start_x_i, start_y_i, goal_x_i, goal_y_i;
     double start_x, start_y, goal_x, goal_y;
     //将起点坐标转换到地图的坐标中去,这里调用的是costmap中的函数
@@ -341,6 +354,19 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
     delete potential_array_;
     return !plan.empty();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void GlobalPlanner::publishPlan(const std::vector<geometry_msgs::PoseStamped>& path) {
     if (!initialized_) {

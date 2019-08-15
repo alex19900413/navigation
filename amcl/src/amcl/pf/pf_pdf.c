@@ -43,7 +43,7 @@ static unsigned int pf_pdf_seed;
  *************************************************************************/
 
 // Create a gaussian pdf
-//创建一个高斯概率密度函数
+//创建一个高斯概率密度函数对象
 pf_pdf_gaussian_t *pf_pdf_gaussian_alloc(pf_vector_t x, pf_matrix_t cx)
 {
   pf_matrix_t cd;
@@ -103,6 +103,7 @@ double pf_pdf_gaussian_value(pf_pdf_gaussian_t *pdf, pf_vector_t x)
 
 
 // Generate a sample from the the pdf.
+//根据概率密度函数结构，生成一个位姿
 pf_vector_t pf_pdf_gaussian_sample(pf_pdf_gaussian_t *pdf)
 {
   int i, j;

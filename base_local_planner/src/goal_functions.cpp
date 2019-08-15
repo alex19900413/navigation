@@ -85,6 +85,16 @@ namespace base_local_planner {
     }
   }
 
+
+
+
+
+
+
+
+
+
+  //根据全局路径和位姿，local_costmap，得到local_plan。就是根据local_costmap的大小，把全局路径在这个地图中的goal保存成局部路径
   bool transformGlobalPlan(
       const tf::TransformListener& tf,
       const std::vector<geometry_msgs::PoseStamped>& global_plan,
@@ -99,6 +109,7 @@ namespace base_local_planner {
       ROS_ERROR("Received plan with zero length");
       return false;
     }
+
     //选择global_plan的第一个元素
     const geometry_msgs::PoseStamped& plan_pose = global_plan[0];
     try {
@@ -136,7 +147,7 @@ namespace base_local_planner {
       double sq_dist = 0;
 
       //we need to loop to a point on the plan that is within a certain distance of the robot
-      //这里是找到一个在costmap的内切圆里的一个局部目标点
+      //把costmap的内切圆里的目标点筛选出来
       while(i < (unsigned int)global_plan.size()) {
         double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
         double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
@@ -152,7 +163,7 @@ namespace base_local_planner {
       geometry_msgs::PoseStamped newer_pose;
 
       //now we'll transform until points are outside of our distance threshold
-      //把costmap范围内的路径点都保存到transformed_plan中
+      //把筛选出来的路径点都保存到transformed_plan中
       while(i < (unsigned int)global_plan.size() && sq_dist <= sq_dist_threshold) {
         const geometry_msgs::PoseStamped& pose = global_plan[i];
         poseStampedMsgToTF(pose, tf_pose);
@@ -188,6 +199,18 @@ namespace base_local_planner {
 
     return true;
   }
+
+
+
+
+
+
+
+
+
+
+
+
 
   bool getGoalPose(const tf::TransformListener& tf,
       const std::vector<geometry_msgs::PoseStamped>& global_plan,

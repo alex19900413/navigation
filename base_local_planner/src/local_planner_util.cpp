@@ -102,6 +102,7 @@ bool LocalPlannerUtil::setPlan(const std::vector<geometry_msgs::PoseStamped>& or
   return true;
 }
 
+//根据全局位姿，得到局部路径。局部路径就是全局路径在局部costmap中的路径点组成的
 bool LocalPlannerUtil::getLocalPlan(tf::Stamped<tf::Pose>& global_pose, std::vector<geometry_msgs::PoseStamped>& transformed_plan) {
   //get the global plan in our frame
   //将全局路径改到local坐标系下，放在下一步去prune

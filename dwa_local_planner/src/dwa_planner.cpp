@@ -260,6 +260,11 @@ namespace dwa_local_planner {
     return false;
   }
 
+
+
+
+
+
   //第一个参数是机器人在map坐标系下的位姿
   //第二个参数是local_costmap下的全局路径
   //第三个参数是机器人的外形定义
@@ -326,6 +331,13 @@ namespace dwa_local_planner {
       alignment_costs_.setScale(0.0);
     }
   }
+
+
+
+
+
+
+
 
 
   /*

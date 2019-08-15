@@ -37,10 +37,11 @@
 typedef struct pf_kdtree_node
 {
   // Depth in the tree
+  //用0,1表示是否为leaf节点； depth描述的是kdtree的层
   int leaf, depth;
 
   // Pivot dimension and value
-  int pivot_dim;          //轴点处于第几维
+  int pivot_dim;          //轴点处于n维向量的第几维。
   double pivot_value;     //轴点的值，相当于split点。轴点值=（当前节点值+待加入节点值）/ 2
 
   // The key for this node
