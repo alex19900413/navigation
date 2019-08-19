@@ -209,6 +209,7 @@ namespace base_local_planner{
 
   /**
    * create and score a trajectory given the current pose of the robot and selected velocities
+   * 这个是跟dwa不一样的局部规划算法？
    */
   void TrajectoryPlanner::generateTrajectory(
       double x, double y, double theta,

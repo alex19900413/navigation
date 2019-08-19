@@ -83,6 +83,7 @@ namespace dwa_local_planner {
       planner_util_.reconfigureCB(limits, config.restore_defaults);
 
       // update dwa specific configuration
+      //调用dwa的参数配置函数
       dp_->reconfigure(config);
   }
 
@@ -111,10 +112,11 @@ namespace dwa_local_planner {
       // make sure to update the costmap we'll use for this cycle
       costmap_2d::Costmap2D* costmap = costmap_ros_->getCostmap();
 
+      //local_planner_util工具，dwa大部分工作都是由它完成的
       planner_util_.initialize(tf, costmap, costmap_ros_->getGlobalFrameID());
 
       //create the actual planner that we'll use.. it'll configure itself from the parameter server
-      //move_base中创建局部规划器后，其调用初始化函数在这里实例化dwa对象,最主要的是把几种计算cost的方法放到critics中，细看其详细细节
+      //创建DWA局部规划器，初始化costFunction,保存到critics，轨迹Generator，轨迹打分器scored_simpling_planner
       dp_ = boost::shared_ptr<DWAPlanner>(new DWAPlanner(name, &planner_util_));
 
       if( private_nh.getParam( "odom_topic", odom_topic_ ))
@@ -282,15 +284,17 @@ namespace dwa_local_planner {
       ROS_ERROR("Could not get robot pose");
       return false;
     }
+    
     //局部路径
     std::vector<geometry_msgs::PoseStamped> transformed_plan;
-    //根据当前位姿,得到global plan在local坐标系下的transformed_plan,用于局部规划控制
+    //根据当前位姿,得到global plan在local_costmap下的transformed_plan,用于局部规划控制
     if ( ! planner_util_.getLocalPlan(current_pose_, transformed_plan)) {
       ROS_ERROR("Could not get local plan");
       return false;
     }
 
     //if the global plan passed in is empty... we won't do anything
+    //如果路径是空的，什么都不做
     if(transformed_plan.empty()) {
       ROS_WARN_NAMED("dwa_local_planner", "Received an empty transformed plan.");
       return false;
@@ -298,7 +302,7 @@ namespace dwa_local_planner {
     ROS_DEBUG_NAMED("dwa_local_planner", "Received a transformed plan with %zu points.", transformed_plan.size());
 
     // update plan in dwa_planner even if we just stop and rotate, to allow checkTrajectory
-    //初始化后一些cost方法
+    //初始化配置相关的cost方法
     dp_->updatePlanAndLocalCosts(current_pose_, transformed_plan, costmap_ros_->getRobotFootprint());
 
     //如果到达goal position ,就停止路径规划，cmd_vel的速度为0

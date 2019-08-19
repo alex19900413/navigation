@@ -47,20 +47,27 @@ namespace base_local_planner {
     critics_ = critics;
   }
 
+  //给指定轨迹traj打分，当traj分数小于0或者大于当前最优的best_traj_cost时，则退出打分循环
+  //所以吧，score的分数也可能是负值
   double SimpleScoredSamplingPlanner::scoreTrajectory(Trajectory& traj, double best_traj_cost) {
     double traj_cost = 0;
+    //用于显示那个costfuction的值为负值
     int gen_id = 0;
     for(std::vector<TrajectoryCostFunction*>::iterator score_function = critics_.begin(); score_function != critics_.end(); ++score_function) {
       TrajectoryCostFunction* score_function_p = *score_function;
       if (score_function_p->getScale() == 0) {
         continue;
       }
+      //找了很久这个函数，原来在各自的cost_function函数中
       double cost = score_function_p->scoreTrajectory(traj);
+      //如果costFunction打分小于0 ，则直接把该分数丢掉。退出当前循环
       if (cost < 0) {
         ROS_DEBUG("Velocity %.3lf, %.3lf, %.3lf discarded by cost function  %d with cost: %f", traj.xv_, traj.yv_, traj.thetav_, gen_id, cost);
         traj_cost = cost;
         break;
       }
+
+      //按比例获取costFunction的cost
       if (cost != 0) {
         cost *= score_function_p->getScale();
       }
@@ -79,20 +86,25 @@ namespace base_local_planner {
   }
 
   bool SimpleScoredSamplingPlanner::findBestTrajectory(Trajectory& traj, std::vector<Trajectory>* all_explored) {
+    //用于保留速度采样生成的轨迹
     Trajectory loop_traj;
+    //保存最优轨迹
     Trajectory best_traj;
-    //初始化为-1，为啥不也初始化为-7呢？
+    //初始化为-1，为啥不也初始化为-7呢？只要是负数就够了。score出来的traj不可能小于0
     double loop_traj_cost, best_traj_cost = -1;
     bool gen_success;
     int count, count_valid;
+
     //oscillation和twirling的prepare函数定义在头文件中
     for (std::vector<TrajectoryCostFunction*>::iterator loop_critic = critics_.begin(); loop_critic != critics_.end(); ++loop_critic) {
       TrajectoryCostFunction* loop_critic_p = *loop_critic;
+      //前提准备。只有map_grid_cost才有定义，计算map_grid的路径偏离程度等
       if (loop_critic_p->prepare() == false) {
         ROS_WARN("A scoring function failed to prepare");
         return false;
       }
     }
+
     //这个gen_list容器里，只有一个trajectorySampleGenerator
     for (std::vector<TrajectorySampleGenerator*>::iterator loop_gen = gen_list_.begin(); loop_gen != gen_list_.end(); ++loop_gen) {
       count = 0;
@@ -117,6 +129,7 @@ namespace base_local_planner {
         //如果新的路径是最佳路径，则更新
         if (loop_traj_cost >= 0) {
           count_valid++;
+          //best_traj_cost小于0是其默认初始化为-1。cost大于0，越小越优秀
           if (best_traj_cost < 0 || loop_traj_cost < best_traj_cost) {
             best_traj_cost = loop_traj_cost;
             best_traj = loop_traj;

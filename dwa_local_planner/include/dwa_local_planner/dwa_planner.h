@@ -179,6 +179,7 @@ namespace dwa_local_planner {
       base_local_planner::SimpleTrajectoryGenerator generator_;
       base_local_planner::OscillationCostFunction oscillation_costs_;
       base_local_planner::ObstacleCostFunction obstacle_costs_;
+      //定义了4个MapGridCostFunction
       base_local_planner::MapGridCostFunction path_costs_;
       base_local_planner::MapGridCostFunction goal_costs_;
       base_local_planner::MapGridCostFunction goal_front_costs_;

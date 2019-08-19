@@ -254,6 +254,7 @@ namespace move_base {
       //initialize the global planner
       ROS_INFO("Loading global planner %s", config.base_global_planner.c_str());
       try {
+        //在这里就确定了planner_是属于那个插件了
         planner_ = bgp_loader_.createInstance(config.base_global_planner);
 
         // wait for the current planner to finish planning
@@ -264,6 +265,7 @@ namespace move_base {
         latest_plan_->clear();
         controller_plan_->clear();
         resetState();
+        //每个全局planner插件都会定义一个initialize函数
         planner_->initialize(bgp_loader_.getName(config.base_global_planner), planner_costmap_ros_);
 
         lock.unlock();
@@ -279,12 +281,14 @@ namespace move_base {
       boost::shared_ptr<nav_core::BaseLocalPlanner> old_planner = tc_;
       //create a local planner
       try {
+        //同样的，在这里就确认了局部规划器是哪个插件
         tc_ = blp_loader_.createInstance(config.base_local_planner);
         // Clean up before initializing the new planner
         planner_plan_->clear();
         latest_plan_->clear();
         controller_plan_->clear();
         resetState();
+        //调用对应插件的函数，一般在ros的封装文件中
         tc_->initialize(blp_loader_.getName(config.base_local_planner), &tf_, controller_costmap_ros_);
       } catch (const pluginlib::PluginlibException& ex) {
         ROS_FATAL("Failed to create the %s planner, are you sure it is properly registered and that the \
@@ -725,6 +729,7 @@ namespace move_base {
 
         lock.lock();
         planner_plan_ = latest_plan_;
+        //保存上一次的全局路径
         latest_plan_ = temp_plan;
         last_valid_plan_ = ros::Time::now();
         planning_retries_ = 0;
@@ -993,7 +998,8 @@ namespace move_base {
 
 
 
-  //检查是否到达目标点。会检测move_base的状态机
+  //检查是否到达目标点。会检测move_base的状态机。
+  //在controller_frequency_内，检查是否到达目标点，没有的话就要用dwa再规划一次，这跟它的sim_time有啥关系？
   bool MoveBase::executeCycle(geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& global_plan){
     boost::recursive_mutex::scoped_lock ecl(configuration_mutex_);
     //we need to be able to publish velocity commands
@@ -1033,6 +1039,7 @@ namespace move_base {
     }
 
     //if we have a new plan then grab it and give it to the controller
+    //如果全局路径更新了，那就将其更新给局部规划器
     if(new_global_plan_){
       //make sure to set the new plan flag to false
       new_global_plan_ = false;
@@ -1043,11 +1050,13 @@ namespace move_base {
       std::vector<geometry_msgs::PoseStamped>* temp_plan = controller_plan_;
 
       boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
+      //更新全局路径给局部规划器
       controller_plan_ = latest_plan_;
       latest_plan_ = temp_plan;
       lock.unlock();
       ROS_DEBUG_NAMED("move_base","pointers swapped!");
 
+      //更新全局路径。如果规划器未初始化则会报错
       if(!tc_->setPlan(*controller_plan_)){
         //ABORT and SHUTDOWN COSTMAPS
         ROS_ERROR("Failed to pass global plan to the controller, aborting.");
@@ -1067,9 +1076,13 @@ namespace move_base {
         recovery_index_ = 0;
     }
 
+
+
+
     //the move_base state machine, handles the control logic for navigation
     switch(state_){
       //if we are in a planning state, then we'll attempt to make a plan
+      //全局规划
       case PLANNING:
         {
           boost::recursive_mutex::scoped_lock lock(planner_mutex_);
@@ -1080,6 +1093,7 @@ namespace move_base {
         break;
 
       //if we're controlling, we'll attempt to find valid velocity commands
+      //局部规划及控制
       case CONTROLLING:
         ROS_DEBUG_NAMED("move_base","In controlling state.");
 
@@ -1098,6 +1112,7 @@ namespace move_base {
         }
 
         //check for an oscillation condition
+        //检查是否处于振荡状态
         if(oscillation_timeout_ > 0.0 &&
             last_oscillation_reset_ + ros::Duration(oscillation_timeout_) < ros::Time::now())
         {
@@ -1118,7 +1133,7 @@ namespace move_base {
           if(recovery_trigger_ == CONTROLLING_R)
             recovery_index_ = 0;
         }
-        else {//如果局部规划失败了，要么recovery，要么重新全局规划。我觉得小车recovery时重新全局规划就是不对的，走位不好看
+        else {//如果局部规划失败了，要么recovery，要么重新全局规划。我觉得小车recovery时重新全局规划就是不对的，走位不好看/在下面可以选择注释掉重新全局规划
           ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan.");
           //局部规划时间默认是5s
           ros::Time attempt_end = last_valid_control_ + ros::Duration(controller_patience_);
@@ -1142,7 +1157,7 @@ namespace move_base {
             //enable the planner thread in case it isn't running on a clock
             boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
             runPlanner_ = true;
-            //开启全局规划
+            //开启全局规划。其实可以在这里注释掉呢
             planner_cond_.notify_one();
             lock.unlock();
           }

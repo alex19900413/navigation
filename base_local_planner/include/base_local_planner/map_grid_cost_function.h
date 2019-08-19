@@ -120,9 +120,11 @@ public:
 
 private:
   std::vector<geometry_msgs::PoseStamped> target_poses_;
+  //Local_costmap
   costmap_2d::Costmap2D* costmap_;
 
   base_local_planner::MapGrid map_;
+  //默认为Last
   CostAggregationType aggregationType_;
   /// xshift and yshift allow scoring for different
   // ooints of robots than center, like fron or back

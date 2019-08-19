@@ -205,6 +205,9 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   robot_stopped_ = false;
   timer_ = private_nh.createTimer(ros::Duration(.1), &Costmap2DROS::movementCB, this);
 
+  //加载动态参数，这里面包含了地图大小，坐标原点，机器人尺寸等参数。local_costmap的大小就是通过这里设定的
+  //但是这是在地图加载后才调用的。而且是通过load yaml修改的参数服务器里的参数，这里加载的是动态参数。
+  //应该参数服务器保存了所有命名空间的参数，同事通过dynamic reconfigure的方式，可以去修改参数服务器里面的参数
   dsrv_ = new dynamic_reconfigure::Server<Costmap2DConfig>(ros::NodeHandle("~/" + name));
   //构造函数初始化结束的时候, 开启了一个线程来updateMap.
   //这里的参数，都跟name有关，即如果name是global_planner，那么调用的都是global_planner下的参数
@@ -312,6 +315,12 @@ void Costmap2DROS::resetOldParameters(ros::NodeHandle& nh)
 
 void Costmap2DROS::reconfigureCB(costmap_2d::Costmap2DConfig &config, uint32_t level)
 {
+
+  //首次加载的时候，config中的参数已经更新为参数服务器定义的参数了。所以local_costmap_param.yaml文件中定义width，height参数，可以被用来resizemap
+  //local_costmap中的inflation_layer也跟obstacle_layer一样的大小。它们公用layered_costmap_指针
+  
+  //而global_costmap没有指定width，height参数，它的地图大小在static_layer中调用了resizeMap函数来更新地图了
+  //global_costmap中obstacle_layer的大小呢？所有layer公用一个layered_costmap_,这个参数保存了一张costmap_,所以会跟static_layer一样大
   transform_tolerance_ = config.transform_tolerance;
   if (map_update_thread_ != NULL)
   {
@@ -369,6 +378,7 @@ void Costmap2DROS::readFootprintFromConfig(const costmap_2d::Costmap2DConfig &ne
     return;
   }
 
+  //如果footprint是方型的，则逐一提取；如果是圆形底盘，则离散16个点
   if (new_config.footprint != "" && new_config.footprint != "[]")
   {
     std::vector<geometry_msgs::Point> new_footprint;
@@ -384,6 +394,7 @@ void Costmap2DROS::readFootprintFromConfig(const costmap_2d::Costmap2DConfig &ne
   else
   {
     // robot_radius may be 0, but that must be intended at this point.
+    //如果是圆形底盘，则离散成16个点的footprint
     setUnpaddedRobotFootprint(makeFootprintFromRadius(new_config.robot_radius));
   }
 }

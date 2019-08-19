@@ -75,9 +75,11 @@ private:
   bool setOscillationFlags(base_local_planner::Trajectory* t, double min_vel_trans);
 
   // flags
-  bool strafe_pos_only_, strafe_neg_only_, strafing_pos_, strafing_neg_;
-  bool rot_pos_only_, rot_neg_only_, rotating_pos_, rotating_neg_;
-  bool forward_pos_only_, forward_neg_only_, forward_pos_, forward_neg_;
+  //判断小车的前进方向，转向。分不清加only和不加only的区别
+  //加only的表示速度方向发生了变化，only是当前轨迹的速度
+  bool strafe_pos_only_, strafe_neg_only_, strafing_pos_, strafing_neg_;  //y轴方向的速度
+  bool rot_pos_only_, rot_neg_only_, rotating_pos_, rotating_neg_;        //旋转速度
+  bool forward_pos_only_, forward_neg_only_, forward_pos_, forward_neg_;  //x轴方向的速度
 
   // param
   double oscillation_reset_dist_, oscillation_reset_angle_;

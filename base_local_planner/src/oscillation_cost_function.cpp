@@ -53,15 +53,20 @@ void OscillationCostFunction::setOscillationResetDist(double dist, double angle)
   oscillation_reset_angle_ = angle;
 }
 
+//参数1，机器人的坐标。参数2，机器人局部最优轨迹。参数3，dwa参数min_trans_vel
 void OscillationCostFunction::updateOscillationFlags(Eigen::Vector3f pos, base_local_planner::Trajectory* traj, double min_vel_trans) {
+  //最优轨迹诶，其cost也可能是小于0的
   if (traj->cost_ >= 0) {
+    //如果运动方向发生了变化，则把当前位置保存为之前的位置
     if (setOscillationFlags(traj, min_vel_trans)) {
       prev_stationary_pos_ = pos;
     }
     //if we've got restrictions... check if we can reset any oscillation flags
+    //如果速度方向发生变化，这些flag值肯定有一个被设置为true了
     if(forward_pos_only_ || forward_neg_only_
         || strafe_pos_only_ || strafe_neg_only_
         || rot_pos_only_ || rot_neg_only_){
+      //这两个参数的值都一样的，除非继续走了一段距离后，才会被重置flag
       resetOscillationFlagsIfPossible(pos, prev_stationary_pos_);
     }
   }
@@ -98,9 +103,11 @@ void OscillationCostFunction::resetOscillationFlags() {
   forward_neg_ = false;
 }
 
+//如果速度方向发生了变化，则返回true
 bool OscillationCostFunction::setOscillationFlags(base_local_planner::Trajectory* t, double min_vel_trans) {
   bool flag_set = false;
   //set oscillation flags for moving forward and backward
+  //根据轨迹的速度，更新flag，判断是朝前还是朝后
   if (t->xv_ < 0.0) {
     if (forward_pos_) {
       forward_neg_only_ = true;
@@ -109,6 +116,7 @@ bool OscillationCostFunction::setOscillationFlags(base_local_planner::Trajectory
     forward_pos_ = false;
     forward_neg_ = true;
   }
+
   if (t->xv_ > 0.0) {
     if (forward_neg_) {
       forward_pos_only_ = true;
@@ -119,8 +127,10 @@ bool OscillationCostFunction::setOscillationFlags(base_local_planner::Trajectory
   }
 
   //we'll only set flags for strafing and rotating when we're not moving forward at all
+  //按道理来说，不应该小于这个速度的啊。在轨迹生成前就排除了的/没有，只有当线速度和角速度都不满足时才会失败
   if (fabs(t->xv_) <= min_vel_trans) {
     //check negative strafe
+    //差速的平台，不需要考虑切向的速度
     if (t->yv_ < 0) {
       if (strafing_pos_) {
         strafe_neg_only_ = true;

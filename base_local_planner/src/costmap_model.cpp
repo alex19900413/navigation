@@ -56,6 +56,7 @@ namespace base_local_planner {
       return -1.0;
 
     //if number of points in the footprint is less than 3, we'll just assume a circular robot
+    //不可能小于3吧
     if(footprint.size() < 3){
       unsigned char cost = costmap_.getCost(cell_x, cell_y);
       //if(cost == LETHAL_OBSTACLE || cost == INSCRIBED_INFLATED_OBSTACLE)
@@ -70,6 +71,7 @@ namespace base_local_planner {
     double footprint_cost = 0.0;
 
     //we need to rasterize each line in the footprint
+    //检查每条边线上是否有障碍物
     for(unsigned int i = 0; i < footprint.size() - 1; ++i){
       //get the cell coord of the first point
       if(!costmap_.worldToMap(footprint[i].x, footprint[i].y, x0, y0))
@@ -78,7 +80,7 @@ namespace base_local_planner {
       //get the cell coord of the second point
       if(!costmap_.worldToMap(footprint[i + 1].x, footprint[i + 1].y, x1, y1))
         return -1.0;
-
+      //计算这条线上的cost。并更新footprint_cost,只保留边线上最大值，而不是累加值
       line_cost = lineCost(x0, x1, y0, y1);
       footprint_cost = std::max(line_cost, footprint_cost);
 
@@ -89,6 +91,7 @@ namespace base_local_planner {
 
     //we also need to connect the first point in the footprint to the last point
     //get the cell coord of the last point
+    //还需检查第一个点和最后一个点之间是否有障碍物
     if(!costmap_.worldToMap(footprint.back().x, footprint.back().y, x0, y0))
       return -1.0;
 
@@ -108,12 +111,14 @@ namespace base_local_planner {
   }
 
   //calculate the cost of a ray-traced line
+  //迭代查找这条线上的点的cost
   double CostmapModel::lineCost(int x0, int x1, int y0, int y1) const {
     double line_cost = 0.0;
     double point_cost = -1.0;
 
     for( LineIterator line( x0, y0, x1, y1 ); line.isValid(); line.advance() )
     {
+      //计算这条线上的point_cost
       point_cost = pointCost( line.getX(), line.getY() ); //Score the current point
 
       if(point_cost < 0)
@@ -126,6 +131,9 @@ namespace base_local_planner {
     return line_cost;
   }
 
+
+
+  //计算点的cost值
   double CostmapModel::pointCost(int x, int y) const {
     unsigned char cost = costmap_.getCost(x, y);
     //if the cell is in an obstacle the path is invalid

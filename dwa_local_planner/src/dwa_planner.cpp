@@ -53,7 +53,7 @@ namespace dwa_local_planner {
   {
 
     boost::mutex::scoped_lock l(configuration_mutex_);
-
+    //将参数传递给simple_trajectory_generator,sim_period是move_base的控制时间，用来更新检查是否到达目标点
     generator_.setParameters(
         config.sim_time,
         config.sim_granularity,
@@ -62,28 +62,38 @@ namespace dwa_local_planner {
         sim_period_);
 
     double resolution = planner_util_->getCostmap()->getResolution();
+    //跟随全局路径的权重
     pdist_scale_ = config.path_distance_bias;
     // pdistscale used for both path and alignment, set  forward_point_distance to zero to discard alignment
+    //设置costFunction的比例
     path_costs_.setScale(resolution * pdist_scale_ * 0.5);
     alignment_costs_.setScale(resolution * pdist_scale_ * 0.5);
-
+    
+    //距离目标点的权重
     gdist_scale_ = config.goal_distance_bias;
     goal_costs_.setScale(resolution * gdist_scale_ * 0.5);
     goal_front_costs_.setScale(resolution * gdist_scale_ * 0.5);
 
+    //避免障碍物的权重.obstacle里，打分没有用到此比例。用的是scaling_speed和max_scaling_factor生成的比例
     occdist_scale_ = config.occdist_scale;
     obstacle_costs_.setScale(resolution * occdist_scale_);
 
+    //器人急停减速到0所需要花费的时间，没有用到
     stop_time_buffer_ = config.stop_time_buffer;
+
+    //设置振荡参数，距离默认0.05m，角度默认0.2°
     oscillation_costs_.setOscillationResetDist(config.oscillation_reset_dist, config.oscillation_reset_angle);
-    //把正前方0.325的点作为第一个目标点。是不是这样才导致总是超前走一小段距离？
+
+    //把正前方0.325的点作为第一个目标点。使得traj点不要离小车太近
     forward_point_distance_ = config.forward_point_distance;
     goal_front_costs_.setXShift(forward_point_distance_);
     alignment_costs_.setXShift(forward_point_distance_);
  
     // obstacle costs can vary due to scaling footprint feature
+    //障碍物代价和机器人外形有关。但是这些参数并没有被用到哦
     obstacle_costs_.setParams(config.max_trans_vel, config.max_scaling_factor, config.scaling_speed);
 
+    //默认为0,那就是说不考虑这个的代价了
     twirling_costs_.setScale(config.twirling_scale);
 
     int vx_samp, vy_samp, vth_samp;
@@ -130,8 +140,10 @@ namespace dwa_local_planner {
       goal_front_costs_(planner_util->getCostmap(), 0.0, 0.0, true),
       alignment_costs_(planner_util->getCostmap())
   {
+    //命名空间move_base/DWAPlannerROS
     ros::NodeHandle private_nh("~/" + name);
-
+    
+    //局部路径离全局路径的偏离程度
     goal_front_costs_.setStopOnFailure( false );
     alignment_costs_.setStopOnFailure( false );
 
@@ -139,7 +151,7 @@ namespace dwa_local_planner {
     //just do an upward search for the frequency at which its being run. This
     //also allows the frequency to be overwritten locally.
     std::string controller_frequency_param_name;
-    //所以这sim_period可以通过controller_frequency来修改
+    //所以这sim_period可以通过controller_frequency来修改。向上搜索参数，在move_base的命名空间下会有此参数
     if(!private_nh.searchParam("controller_frequency", controller_frequency_param_name)) {
       sim_period_ = 0.05;
     } else {
@@ -160,7 +172,7 @@ namespace dwa_local_planner {
     private_nh.param("sum_scores", sum_scores, false);
     obstacle_costs_.setSumScores(sum_scores);
 
-
+    //map_viz用来发布路径点云的cost值，用于显示debug
     private_nh.param("publish_cost_grid_pc", publish_cost_grid_pc_, false);
     map_viz_.initialize(name, planner_util->getGlobalFrame(), boost::bind(&DWAPlanner::getCellCosts, this, _1, _2, _3, _4, _5, _6));
 
@@ -170,25 +182,30 @@ namespace dwa_local_planner {
     //保存轨迹的点云数据，每个点是MapGridCostPoint类型
     traj_cloud_ = new pcl::PointCloud<base_local_planner::MapGridCostPoint>;
     traj_cloud_->header.frame_id = frame_id;
-    //这里都没有指定发布类型呢，用的是pcl_ros这个封装
+    //这里都没有指定发布类型呢，用的是pcl_ros::Publisher这个封装。发布的话题跟cost_cloud一样
     traj_cloud_pub_.advertise(private_nh, "trajectory_cloud", 1);
     private_nh.param("publish_traj_pc", publish_traj_pc_, false);
 
     // set up all the cost functions that will be applied in order
     // (any function returning negative values will abort scoring, so the order can improve performance)
     //加载了这么多的打分决策，顺序还能够提高性能？不知道有啥办法可以直观的看打分效果，这样的话就可以尝试要不要放弃一些决策啥的
+    //障碍物代价的权重达到了
     std::vector<base_local_planner::TrajectoryCostFunction*> critics;
+    //振动代价放第一位
     critics.push_back(&oscillation_costs_); // discards oscillating motions (assisgns cost -1)
+    //障碍物代价放第二位
     critics.push_back(&obstacle_costs_); // discards trajectories that move into obstacles
+    //如下四个是MapGridCostFunction
     critics.push_back(&goal_front_costs_); // prefers trajectories that make the nose go towards (local) nose goal
     critics.push_back(&alignment_costs_); // prefers trajectories that keep the robot nose on nose path
     critics.push_back(&path_costs_); // prefers trajectories on global path
     critics.push_back(&goal_costs_); // prefers trajectories that go towards (local) goal, based on wave propagation
+    //这个代价放最后，是防止轨迹捻转
     critics.push_back(&twirling_costs_); // optionally prefer trajectories that don't spin
 
     // trajectory generators
     std::vector<base_local_planner::TrajectorySampleGenerator*> generator_list;
-    //generator_保存了生成的速度采样的对象。搞不懂，这里就一个对象，为啥要用vector来保存？
+    //generator_轨迹采样器。搞不懂，这里就一个对象，为啥要用vector来保存？
     generator_list.push_back(&generator_);
 
     //把速度采样容器（真搞不清楚为啥要用容器），传递给SimpleScoredSamplingPlanner类型的scored_sampling_planner_，其会执行打分操作
@@ -205,6 +222,7 @@ namespace dwa_local_planner {
 
 
   // used for visualization only, total_costs are not really total costs
+  //根据给定的网格坐标，计算其相关cost值
   bool DWAPlanner::getCellCosts(int cx, int cy, float &path_cost, float &goal_cost, float &occ_cost, float &total_cost) {
 
     path_cost = path_costs_.getCellCosts(cx, cy);
@@ -278,11 +296,11 @@ namespace dwa_local_planner {
       global_plan_[i] = new_plan[i];
     }
     //这里面不见oscillation_cost_function
-    //这里有点疑问，如果机器人是圆形底盘，给的是半径，会转换成footprint？
+    //这里有点疑问，如果机器人是圆形底盘，给的是半径，会转换成footprint？/圆形底盘会离散成16个点
     obstacle_costs_.setFootprint(footprint_spec);
 
 
-    //后面四个是map_grid_cost_function
+    //设置costFunction路径，并计算target_dist
     // costs for going away from path
     path_costs_.setTargetPoses(global_plan_);
 
@@ -290,12 +308,12 @@ namespace dwa_local_planner {
     goal_costs_.setTargetPoses(global_plan_);
 
     // alignment costs
-    // 取全局路径的最后一个还是最初始那个？
+    // 取全局路径的最后一个还是最初始那个？/最后一个
     geometry_msgs::PoseStamped goal_pose = global_plan_.back();
 
     //这是当前位姿
     Eigen::Vector3f pos(global_pose.getOrigin().getX(), global_pose.getOrigin().getY(), tf::getYaw(global_pose.getRotation()));
-    //计算当前位置到最近一个目标点的直线距离
+    //计算当前位置到局部目标点的直线距离
     double sq_dist =
         (pos[0] - goal_pose.pose.position.x) * (pos[0] - goal_pose.pose.position.x) +
         (pos[1] - goal_pose.pose.position.y) * (pos[1] - goal_pose.pose.position.y);
@@ -310,7 +328,8 @@ namespace dwa_local_planner {
     std::vector<geometry_msgs::PoseStamped> front_global_plan = global_plan_;
     //计算当前位姿到目标点的角度，然后更新front_global_plan最后一个元素的值
     double angle_to_goal = atan2(goal_pose.pose.position.y - pos[1], goal_pose.pose.position.x - pos[0]);
-    //按下面的意思是，把原来最后一个目标点，挪远一点，这不好吧
+    //按下面的意思是，把原来最后一个目标点，挪远一点，这不好吧/forward_point_distance在轨迹规划的时候，就加进来了
+    //其实就是在局部路径上再加个点，使得最后一个点的方向，就是起点指向局部目标点的方向
     front_global_plan.back().pose.position.x = front_global_plan.back().pose.position.x +
       forward_point_distance_ * cos(angle_to_goal);
     front_global_plan.back().pose.position.y = front_global_plan.back().pose.position.y + forward_point_distance_ *
@@ -328,6 +347,7 @@ namespace dwa_local_planner {
       alignment_costs_.setTargetPoses(global_plan_);
     } else {
       // once we are close to goal, trying to keep the nose close to anything destabilizes behavior.
+      //如果太近了，就设置为0
       alignment_costs_.setScale(0.0);
     }
   }
@@ -344,7 +364,7 @@ namespace dwa_local_planner {
    * given the current state of the robot, find a good trajectory
    * 最佳路径保存为result_traj_，这是最关键的函数吧 
    * 第一个参数是frame_id为map的stamped对象，描述的是位姿
-   * 第二个参数是frame_id为base_link的stamped对象，这里描述的是速度
+   * 第二个参数是机器人当前速度
    * 第三个参数，保存的也是速度
    */
   base_local_planner::Trajectory DWAPlanner::findBestPath(
@@ -354,9 +374,12 @@ namespace dwa_local_planner {
 
     //make sure that our configuration doesn't change mid-run
     boost::mutex::scoped_lock l(configuration_mutex_);
-
+    
+    //机器人在局部地图的位置，就是局部地图的坐标原点点
     Eigen::Vector3f pos(global_pose.getOrigin().getX(), global_pose.getOrigin().getY(), tf::getYaw(global_pose.getRotation()));
+    //机器人当前速度
     Eigen::Vector3f vel(global_vel.getOrigin().getX(), global_vel.getOrigin().getY(), tf::getYaw(global_vel.getRotation()));
+    //局部目标点
     geometry_msgs::PoseStamped goal_pose = global_plan_.back();
     Eigen::Vector3f goal(goal_pose.pose.position.x, goal_pose.pose.position.y, tf::getYaw(goal_pose.pose.orientation));
     base_local_planner::LocalPlannerLimits limits = planner_util_->getCurrentLimits();
@@ -373,7 +396,7 @@ namespace dwa_local_planner {
     result_traj_.cost_ = -7;
     // find best trajectory by sampling and scoring the samples
     std::vector<base_local_planner::Trajectory> all_explored;
-    //result_traj是最优路径，all_explored是保存被计算的路径.在这里面就会用到上面的速度采样
+    //result_traj是最优路径，all_explored是保存被计算的路径.在这里面就会用到上面的速度采样.用来发布显示
     scored_sampling_planner_.findBestTrajectory(result_traj_, &all_explored);
     //发布轨迹点云轨迹
     if(publish_traj_pc_)
@@ -408,20 +431,24 @@ namespace dwa_local_planner {
     // verbose publishing of point clouds
     if (publish_cost_grid_pc_) {
       //we'll publish the visualization of the costs to rviz before returning our best trajectory
+      //发布cost_cloud的topic，只包含了pathCosts,goalCost,occCost
       map_viz_.publishCostCloud(planner_util_->getCostmap());
     }
 
     // debrief stateful scoring functions
+    //下一次局部规划前，先更新了oscillation_flags
     oscillation_costs_.updateOscillationFlags(pos, &result_traj_, planner_util_->getCurrentLimits().min_trans_vel);
 
     //if we don't have a legal trajectory, we'll just command zero
     if (result_traj_.cost_ < 0) {
-      drive_velocities.setIdentity();
+      drive_velocities.setIdentity(); //有可能所有的traj的cost都是负值，那么就会选第一条traj当做best_traj。那就不动
     } else {
       tf::Vector3 start(result_traj_.xv_, result_traj_.yv_, 0);
+      //设置线速度
       drive_velocities.setOrigin(start);
       tf::Matrix3x3 matrix;
       matrix.setRotation(tf::createQuaternionFromYaw(result_traj_.thetav_));
+      //设置角速度
       drive_velocities.setBasis(matrix);
     }
 

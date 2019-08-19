@@ -59,7 +59,7 @@ void SimpleTrajectoryGenerator::initialise(
 
 
 
-//初始化的是这个函数
+//速度采样初始化的是这个函数
 void SimpleTrajectoryGenerator::initialise(
     const Eigen::Vector3f& pos,
     const Eigen::Vector3f& vel,
@@ -112,6 +112,7 @@ void SimpleTrajectoryGenerator::initialise(
       min_vel[2] = std::max(min_vel_th, vel[2] - acc_lim[2] * sim_time_);
     } else {
       // with dwa do not accelerate beyond the first step, we only sample within velocities we reach in sim_period
+      //move_base控制频率的倒数
       max_vel[0] = std::min(max_vel_x, vel[0] + acc_lim[0] * sim_period_);
       max_vel[1] = std::min(max_vel_y, vel[1] + acc_lim[1] * sim_period_);
       max_vel[2] = std::min(max_vel_th, vel[2] + acc_lim[2] * sim_period_);
@@ -184,7 +185,10 @@ bool SimpleTrajectoryGenerator::nextTrajectory(Trajectory &comp_traj) {
 
 /**
  * @param pos current position of robot
- * @param vel desired velocity for sampling
+ * @param vel desired velocity for sampling，机器人当前速度
+ * @param sample_target_vel 这是采样速度中的一个速度样本
+ * 生成轨迹的思路：根据sim_time，采样速度，以及粒度，计算出num_steps。表示将当前traj分成多少个点组成
+ * 每个点的位姿，
  */
 bool SimpleTrajectoryGenerator::generateTrajectory(
       Eigen::Vector3f pos,
@@ -199,17 +203,21 @@ bool SimpleTrajectoryGenerator::generateTrajectory(
 
   // make sure that the robot would at least be moving with one of
   // the required minimum velocities for translation and rotation (if set)
+  //如果算出来的合速度不在给定的范围内，那么轨迹生成会失败
+  //如果在速度采样的时候用的是vel，而不是合速度采样的
+  //全都满足才会返回false。所以当线速度不满足，角速度满足时也是可以的
   if ((limits_->min_trans_vel >= 0 && vmag + eps < limits_->min_trans_vel) &&
       (limits_->min_rot_vel >= 0 && fabs(sample_target_vel[2]) + eps < limits_->min_rot_vel)) {
     return false;
   }
+
   // make sure we do not exceed max diagonal (x+y) translational velocity (if set)
   if (limits_->max_trans_vel >=0 && vmag - eps > limits_->max_trans_vel) {
     return false;
   }
 
   int num_steps;
-  //sim_granularity_的默认值为0.025
+  //sim_granularity_的默认值为0.025。默认false
   if (discretize_by_time_) {
     num_steps = ceil(sim_time_ / sim_granularity_);
   } else {
@@ -227,8 +235,10 @@ bool SimpleTrajectoryGenerator::generateTrajectory(
   traj.time_delta_ = dt;
 
   Eigen::Vector3f loop_vel;
+  //！use_dwa,如果为true的话，执行速度应该会更平滑一些的吧。
   if (continued_acceleration_) {
     // assuming the velocity of the first cycle is the one we want to store in the trajectory object
+    //根据加速度限制，以及给定的采样速度，以及当前小车速度vel，计算得到一个新的速度loop_vel
     loop_vel = computeNewVelocities(sample_target_vel, vel, limits_->getAccLimits(), dt);
     traj.xv_     = loop_vel[0];
     traj.yv_     = loop_vel[1];
@@ -242,11 +252,13 @@ bool SimpleTrajectoryGenerator::generateTrajectory(
   }
 
   //simulate the trajectory and check for collisions, updating costs along the way
+  //计算出traj离散的轨迹点，用来打分
   for (int i = 0; i < num_steps; ++i) {
 
     //add the point to the trajectory so we can draw it later if we want
+    //添加轨迹点
     traj.addPoint(pos[0], pos[1], pos[2]);
-
+    //!use_dwa
     if (continued_acceleration_) {
       //calculate velocities
       loop_vel = computeNewVelocities(sample_target_vel, loop_vel, limits_->getAccLimits(), dt);
@@ -276,6 +288,7 @@ Eigen::Vector3f SimpleTrajectoryGenerator::computeNewPositions(const Eigen::Vect
 Eigen::Vector3f SimpleTrajectoryGenerator::computeNewVelocities(const Eigen::Vector3f& sample_target_vel,
     const Eigen::Vector3f& vel, Eigen::Vector3f acclimits, double dt) {
   Eigen::Vector3f new_vel = Eigen::Vector3f::Zero();
+  //如果采样速度大于当前速度，则根据加速度和单步时间算出来的新速度比较。选择最小值
   for (int i = 0; i < 3; ++i) {
     if (vel[i] < sample_target_vel[i]) {
       new_vel[i] = std::min(double(sample_target_vel[i]), vel[i] + acclimits[i] * dt);

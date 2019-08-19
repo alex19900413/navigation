@@ -133,7 +133,7 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
         bool use_grid_path;
         //这两个路径有啥区别呢?
         private_nh.param("use_grid_path", use_grid_path, false);
-        //默认为true，路径沿着网格边界规划
+        //默认为true，路径沿着网格边界规划。从全局规划算法找出来的网格里，从目标点回退找到路径
         if (use_grid_path)
             path_maker_ = new GridPath(p_calc_);
         else
@@ -323,7 +323,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
     //将costmap四个边的cell全部设置为致命障碍物
     outlineMap(costmap_->getCharMap(), nx, ny, costmap_2d::LETHAL_OBSTACLE);
 
-    //计算potential，起点到任意点的花费，具体看Astar和Dijkstra
+    //计算potential，即起点到任意点的花费，当找到起点到目标点的cost后停止。具体看Astar和Dijkstra
     bool found_legal = planner_->calculatePotentials(costmap_->getCharMap(), start_x, start_y, goal_x, goal_y,
                                                     nx * ny * 2, potential_array_);
 
@@ -390,6 +390,8 @@ void GlobalPlanner::publishPlan(const std::vector<geometry_msgs::PoseStamped>& p
     plan_pub_.publish(gui_path);
 }
 
+
+//这里的goal是世界坐标系的值。前面四个参数都是地图坐标系的坐标
 bool GlobalPlanner::getPlanFromPotential(double start_x, double start_y, double goal_x, double goal_y,
                                       const geometry_msgs::PoseStamped& goal,
                                        std::vector<geometry_msgs::PoseStamped>& plan) {

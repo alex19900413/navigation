@@ -263,6 +263,7 @@ void ObstacleLayer::onInitialize()
 
 void ObstacleLayer::setupDynamicReconfigure(ros::NodeHandle& nh)
 {
+  //指定命名空间nh
   dsrv_ = new dynamic_reconfigure::Server<costmap_2d::ObstaclePluginConfig>(nh);
   dynamic_reconfigure::Server<costmap_2d::ObstaclePluginConfig>::CallbackType cb = boost::bind(
       &ObstacleLayer::reconfigureCB, this, _1, _2);

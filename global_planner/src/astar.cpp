@@ -45,6 +45,7 @@ AStarExpansion::AStarExpansion(PotentialCalculator* p_calc, int xs, int ys) :
 }
 
 //costs是costmap_数组的阈值，也会影响potential的计算. cycles是数组大小，potential保存cost值
+//第一个参数是地图数组指针，保存的是每个cell的cost值；第六个参数是地图数组大小
 bool AStarExpansion::calculatePotentials(unsigned char* costs, double start_x, double start_y, double end_x, double end_y,
                                         int cycles, float* potential) {
     queue_.clear();
@@ -93,7 +94,8 @@ void AStarExpansion::add(unsigned char* costs, float* potential, float prev_pote
     if(costs[next_i]>=lethal_cost_ && !(unknown_ && costs[next_i]==costmap_2d::NO_INFORMATION))
         return;
 
-    //采用二分法逼近呢，还是用简单的叠加计算如,b点的代价等于a + [a->b]
+    //采用二分法逼近呢（quardratic_calculator）,定义于quadratic_calculator.cpp中
+    //还是用简单的叠加计算如,b点的代价等于a + b.cost](定义于potential_calculator.h中)
     potential[next_i] = p_calc_->calculatePotential(potential, costs[next_i] + neutral_cost_, next_i, prev_potential);
     int x = next_i % nx_, y = next_i / nx_;
     //这里的H直接是曼哈顿距离。不是，后面还乘以了neutral_cost=50,这么大

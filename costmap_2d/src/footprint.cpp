@@ -144,6 +144,7 @@ void padFootprint(std::vector<geometry_msgs::Point>& footprint, double padding)
   for (unsigned int i = 0; i < footprint.size(); i++)
   {
     geometry_msgs::Point& pt = footprint[ i ];
+    //sign0函数有意思，当参数小于0时，则为-1；参数大于0时，为1；参数等于0时，为0
     pt.x += sign0(pt.x) * padding;
     pt.y += sign0(pt.y) * padding;
   }

@@ -71,7 +71,7 @@ bool ObstacleCostFunction::prepare() {
   return true;
 }
 
-//sum_scores_总是false，所以这里的score返回值总是小于等于0
+
 double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
   double cost = 0;
   double scale = getScalingFactor(traj, scaling_speed_, max_trans_vel_, max_scaling_factor_);
@@ -82,8 +82,10 @@ double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
     return -9;
   }
 
+  //如果机器人在不可运动的区域里，那直接返回负值的cost
   for (unsigned int i = 0; i <  traj.getPointsSize(); ++i) {
     traj.getPoint(i, px, py, pth);
+    //这里没有用到scale啊，真是的。这里其实就是求footprint是否与障碍物重合了。如果进入到了膨胀区域，其cost值也会挺大的
     double f_cost = footprintCost(px, py, pth,
         scale, footprint_spec_,
         costmap_, world_model_);
@@ -92,6 +94,7 @@ double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
         return f_cost;
     }
 
+    //默认是Last
     if(sum_scores_)
         cost +=  f_cost;
     else
@@ -100,7 +103,7 @@ double ObstacleCostFunction::scoreTrajectory(Trajectory &traj) {
   return cost;
 }
 
-//score的过程中并没有用scale啊，不知道预留这个做啥
+//score的过程中并没有用scale啊，不知道预留这个做啥/有用的
 double ObstacleCostFunction::getScalingFactor(Trajectory &traj, double scaling_speed, double max_trans_vel, double max_scaling_factor) {
   double vmag = hypot(traj.xv_, traj.yv_);
 
@@ -126,8 +129,10 @@ double ObstacleCostFunction::footprintCost (
 
   //check if the footprint is legal
   // TODO: Cache inscribed radius
+  //此函数定义在world_model.h文件中。最终调用的是costmap_model.cpp中的函数
   double footprint_cost = world_model->footprintCost(x, y, th, footprint_spec);
 
+  //检测到障碍物或未知区域了
   if (footprint_cost < 0) {
     return -6.0;
   }

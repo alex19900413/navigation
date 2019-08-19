@@ -105,6 +105,7 @@ namespace base_local_planner{
 
     //if the cell is an obstacle set the max path distance
     unsigned char cost = costmap.getCost(check_cell->cx, check_cell->cy);
+    //如果check_cell是不可进入的区域，则返回false
     if(! getCell(check_cell->cx, check_cell->cy).within_robot &&
         (cost == costmap_2d::LETHAL_OBSTACLE ||
          cost == costmap_2d::INSCRIBED_INFLATED_OBSTACLE ||
@@ -114,6 +115,7 @@ namespace base_local_planner{
     }
 
     double new_target_dist = current_cell->target_dist + 1;
+    //更新check_cell，加1
     if (new_target_dist < check_cell->target_dist) {
       check_cell->target_dist = new_target_dist;
     }
@@ -130,6 +132,7 @@ namespace base_local_planner{
     }
   }
 
+  //按最小分辨率插值路径
   void MapGrid::adjustPlanResolution(const std::vector<geometry_msgs::PoseStamped>& global_plan_in,
       std::vector<geometry_msgs::PoseStamped>& global_plan_out, double resolution) {
     if (global_plan_in.size() == 0) {
@@ -145,6 +148,7 @@ namespace base_local_planner{
       double loop_x = global_plan_in[i].pose.position.x;
       double loop_y = global_plan_in[i].pose.position.y;
       double sqdist = (loop_x - last_x) * (loop_x - last_x) + (loop_y - last_y) * (loop_y - last_y);
+      //如果两个点距离大于给定精度，则在两点之间按最小进度插值
       if (sqdist > min_sq_resolution) {
         int steps = ceil((sqrt(sqdist)) / resolution);
         // add a points in-between
@@ -168,6 +172,7 @@ namespace base_local_planner{
   }
 
   //update what map cells are considered path based on the global_plan
+  //更新局部路径上的所有点
   void MapGrid::setTargetCells(const costmap_2d::Costmap2D& costmap,
       const std::vector<geometry_msgs::PoseStamped>& global_plan) {
     sizeCheck(costmap.getSizeInCellsX(), costmap.getSizeInCellsY());
@@ -177,26 +182,33 @@ namespace base_local_planner{
     queue<MapCell*> path_dist_queue;
 
     std::vector<geometry_msgs::PoseStamped> adjusted_global_plan;
+    //按最小分辨率插值路径
     adjustPlanResolution(global_plan, adjusted_global_plan, costmap.getResolution());
     if (adjusted_global_plan.size() != global_plan.size()) {
       ROS_DEBUG("Adjusted global plan resolution, added %zu points", adjusted_global_plan.size() - global_plan.size());
     }
+
     unsigned int i;
     // put global path points into local map until we reach the border of the local map
+    //这里就是只考虑local_costmap上的global_path，超出局部border就会退出循环
     for (i = 0; i < adjusted_global_plan.size(); ++i) {
       double g_x = adjusted_global_plan[i].pose.position.x;
       double g_y = adjusted_global_plan[i].pose.position.y;
       unsigned int map_x, map_y;
       if (costmap.worldToMap(g_x, g_y, map_x, map_y) && costmap.getCost(map_x, map_y) != costmap_2d::NO_INFORMATION) {
+        //保存的是这个点在map_中的指针。所有cell的地址，在map_初始化是已经确定下来了
         MapCell& current = getCell(map_x, map_y);
         current.target_dist = 0.0;
+        //表示路径点不会被重新计算target_dist
         current.target_mark = true;
+        //在队尾插入一个元素
         path_dist_queue.push(&current);
         started_path = true;
       } else if (started_path) {
           break;
       }
     }
+
     if (!started_path) {
       ROS_ERROR("None of the %d first of %zu (%zu) points of the global plan were in the local costmap and free",
           i, adjusted_global_plan.size(), global_plan.size());
@@ -207,8 +219,10 @@ namespace base_local_planner{
   }
 
   //mark the point of the costmap as local goal where global_plan first leaves the area (or its last point)
+  //将local_costmap路径的最后一个路径点作为局部目标点
   void MapGrid::setLocalGoal(const costmap_2d::Costmap2D& costmap,
       const std::vector<geometry_msgs::PoseStamped>& global_plan) {
+    //检查map_大小是否与costmap一样大
     sizeCheck(costmap.getSizeInCellsX(), costmap.getSizeInCellsY());
 
     int local_goal_x = -1;
@@ -216,13 +230,16 @@ namespace base_local_planner{
     bool started_path = false;
 
     std::vector<geometry_msgs::PoseStamped> adjusted_global_plan;
+    //把全局路径按分辨率插值成新的路径
     adjustPlanResolution(global_plan, adjusted_global_plan, costmap.getResolution());
 
     // skip global path points until we reach the border of the local map
+    //遍历global_plan的每一个点，直到找到局部目标点
     for (unsigned int i = 0; i < adjusted_global_plan.size(); ++i) {
       double g_x = adjusted_global_plan[i].pose.position.x;
       double g_y = adjusted_global_plan[i].pose.position.y;
       unsigned int map_x, map_y;
+      //虽然这里是全局路径，但是costmap是局部的哈，超出costmap边界，其cost就变成了NO_INFORMATION了
       if (costmap.worldToMap(g_x, g_y, map_x, map_y) && costmap.getCost(map_x, map_y) != costmap_2d::NO_INFORMATION) {
         local_goal_x = map_x;
         local_goal_y = map_y;
@@ -238,6 +255,7 @@ namespace base_local_planner{
       return;
     }
 
+    //其实这个队列里就保存了一个点，就是局部目标点
     queue<MapCell*> path_dist_queue;
     if (local_goal_x >= 0 && local_goal_y >= 0) {
       MapCell& current = getCell(local_goal_x, local_goal_y);
@@ -252,18 +270,23 @@ namespace base_local_planner{
 
 
 
+  //计算吗mao_中所有cell到path的距离
   void MapGrid::computeTargetDistance(queue<MapCell*>& dist_queue, const costmap_2d::Costmap2D& costmap){
     MapCell* current_cell;
     MapCell* check_cell;
     unsigned int last_col = size_x_ - 1;
     unsigned int last_row = size_y_ - 1;
+
+    //计算local_costmap中，所有cell离第一个目标点的距离
     while(!dist_queue.empty()){
+      //路径点的第一个点
       current_cell = dist_queue.front();
-
-
+      //拿掉队列的首个元素
       dist_queue.pop();
 
+      //如下四个循环，更新当前元素周围四个元素的target_dist值
       if(current_cell->cx > 0){
+        //当前cell在map_中的前一个元素
         check_cell = current_cell - 1;
         if(!check_cell->target_mark){
           //mark the cell as visisted

@@ -73,6 +73,7 @@ namespace base_local_planner {
 
         double cos_th = cos(theta);
         double sin_th = sin(theta);
+        //根据机器人的朝向，更新其footprint的点的位置
         std::vector<geometry_msgs::Point> oriented_footprint;
         for(unsigned int i = 0; i < footprint_spec.size(); ++i){
           geometry_msgs::Point new_pt;
@@ -96,6 +97,7 @@ namespace base_local_planner {
 
       /**
        * @brief  Checks if any obstacles in the costmap lie inside a convex footprint that is rasterized into the grid
+       * 检查机器人footprint内是否有障碍物
        * @param  position The position of the robot in world coordinates
        * @param  footprint The specification of the footprint of the robot in world coordinates
        * @param  inscribed_radius The radius of the inscribed circle of the robot
@@ -107,6 +109,7 @@ namespace base_local_planner {
                            double inscribed_radius,
                            double circumscribed_radius, 
                            double extra) {
+        //这是重载函数，在costmap_model和voxel_grid_model,point_grid中有实现
         return footprintCost(position, footprint, inscribed_radius, circumscribed_radius); 
       }
 

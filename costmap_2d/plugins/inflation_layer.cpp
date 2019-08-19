@@ -159,6 +159,7 @@ void InflationLayer::updateBounds(double robot_x, double robot_y, double robot_y
   }
 }
 
+//
 void InflationLayer::onFootprintChanged()
 {
   inscribed_radius_ = layered_costmap_->getInscribedRadius();
@@ -373,6 +374,7 @@ void InflationLayer::setInflationParameters(double inflation_radius, double cost
     boost::unique_lock < boost::recursive_mutex > lock(*inflation_access_);
 
     inflation_radius_ = inflation_radius;
+    //将膨胀半径转换为网格单位
     cell_inflation_radius_ = cellDistance(inflation_radius_);
     weight_ = cost_scaling_factor;
     need_reinflation_ = true;

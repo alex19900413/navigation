@@ -52,21 +52,27 @@ MapGridCostFunction::MapGridCostFunction(costmap_2d::Costmap2D* costmap,
     is_local_goal_function_(is_local_goal_function),
     stop_on_failure_(true) {}
 
+//
 void MapGridCostFunction::setTargetPoses(std::vector<geometry_msgs::PoseStamped> target_poses) {
   target_poses_ = target_poses;
 }
 
+//在scored_sampling_planner中有用到此函数
 bool MapGridCostFunction::prepare() {
   map_.resetPathDist();
 
+  //这两个函数都是会计算target_dist，即map_中其他cell到path的距离。target_poses是全局路径哈
   if (is_local_goal_function_) {
+    //如果只考虑局部路径最后一个目标点。goal_cost,goal_fromt_cost用的是此计算方法
     map_.setLocalGoal(*costmap_, target_poses_);
   } else {
+    //如果考虑局部路径上所有点。path_cost,alignment_cost用的是此方法
     map_.setTargetCells(*costmap_, target_poses_);
   }
   return true;
 }
 
+//获得点到局部目标点的距离
 double MapGridCostFunction::getCellCosts(unsigned int px, unsigned int py) {
   double grid_dist = map_(px, py).target_dist;
   return grid_dist;
@@ -74,6 +80,7 @@ double MapGridCostFunction::getCellCosts(unsigned int px, unsigned int py) {
 
 double MapGridCostFunction::scoreTrajectory(Trajectory &traj) {
   double cost = 0.0;
+  //默认为Last
   if (aggregationType_ == Product) {
     cost = 1.0;
   }
@@ -85,6 +92,7 @@ double MapGridCostFunction::scoreTrajectory(Trajectory &traj) {
     traj.getPoint(i, px, py, pth);
 
     // translate point forward if specified
+    //把轨迹点往前移动设定的距离。这样子的话，会增大goal系列的cost权重。因为离得进了，goal_cost值会更小。
     if (xshift_ != 0.0) {
       px = px + xshift_ * cos(pth);
       py = py + xshift_ * sin(pth);
@@ -96,21 +104,28 @@ double MapGridCostFunction::scoreTrajectory(Trajectory &traj) {
     }
 
     //we won't allow trajectories that go off the map... shouldn't happen that often anyways
+    //如果有点超出地图了，直接返回负值
     if ( ! costmap_->worldToMap(px, py, cell_x, cell_y)) {
       //we're off the map
       ROS_WARN("Off Map %f, %f", px, py);
       return -4.0;
     }
+
+    //当前点到global_path的距离代价
     grid_dist = getCellCosts(cell_x, cell_y);
     //if a point on this trajectory has no clear path to the goal... it may be invalid
+    //按道理来说，不可能
     if (stop_on_failure_) {
+      //如果是在不可进入的区域内，直接返回负值
       if (grid_dist == map_.obstacleCosts()) {
         return -3.0;
+      //在计算grid_dist时，好像是没有这个值的。最多是上面这个值
       } else if (grid_dist == map_.unreachableCellCosts()) {
         return -2.0;
       }
     }
 
+    //默认为Last
     switch( aggregationType_ ) {
     case Last:
       cost = grid_dist;
