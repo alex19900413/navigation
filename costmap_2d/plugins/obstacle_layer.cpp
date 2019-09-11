@@ -61,13 +61,14 @@ void ObstacleLayer::onInitialize()
   //当global planning穿过unknown_space时，不允许其生成路径
   bool track_unknown_space;
   nh.param("track_unknown_space", track_unknown_space, layered_costmap_->isTrackingUnknown());
-  //根据设置，改变默认值的类型
+  //根据设置，改变默认值的类型。默认为true。
   if (track_unknown_space)
     default_value_ = NO_INFORMATION;
   else
     default_value_ = FREE_SPACE;
 
-  //更新了地图的大小.如果是local_costmap，那大小应该在哪儿初始化呢？
+  //更新了地图的大小.如果是local_costmap，那大小应该在哪儿初始化呢？  在构造local_costmap时，根据参数更新了costmap_的大小
+  // 参数回调函数中，调用了layered_costmap的resizeMap函数
   ObstacleLayer::matchSize();
   current_ = true;
 
@@ -301,6 +302,7 @@ void ObstacleLayer::laserScanCallback(const sensor_msgs::LaserScanConstPtr& mess
 
   // project the scan into a point cloud
   //激光雷达msg是距离信息,实际用的是点云信息
+  //最终都要转换成PointCloud2的类型
   try
   {
     projector_.transformLaserScanToPointCloud(message->header.frame_id, *message, cloud, *tf_);
@@ -360,7 +362,7 @@ void ObstacleLayer::pointCloudCallback(const sensor_msgs::PointCloudConstPtr& me
                                                const boost::shared_ptr<ObservationBuffer>& buffer)
 {
   sensor_msgs::PointCloud2 cloud2;
-
+  //最终都要转换成PointCloud2的类型
   if (!sensor_msgs::convertPointCloudToPointCloud2(*message, cloud2))
   {
     ROS_ERROR("Failed to convert a PointCloud to a PointCloud2, dropping message");
@@ -390,6 +392,7 @@ void ObstacleLayer::pointCloud2Callback(const sensor_msgs::PointCloud2ConstPtr& 
 //根据测量数据完成clear操作之后, 就开始mark操作, 对每个测量的点,标记为obstacle.
 //在layered_costmap这个包工头的update函数中执行
 //再往前追溯，那就是costmap_2d_ros中的update 线程函数里，定时去更新地图
+// 传感器观测数据保存在observations中，
 void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x,
                                           double* min_y, double* max_x, double* max_y)
 {
@@ -403,7 +406,8 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
   useExtraBounds(min_x, min_y, max_x, max_y);
 
   bool current = true;
-  //就是拷贝的observation_list的内容，注意，这都是已经在global_map坐标系下了.也就是世界坐标系下的观测值
+  // 就是拷贝的observation_list的内容，注意，这都是已经在global_map坐标系下了.也就是世界坐标系下的观测值
+  // observations是障碍物观测点。clearing_observations也包含观测点
   std::vector<Observation> observations, clearing_observations;
 
   // get the marking observations
@@ -418,6 +422,7 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
   current_ = current;
 
   // raytrace freespace
+  // 清空障碍物点
   for (unsigned int i = 0; i < clearing_observations.size(); ++i)
   {
     raytraceFreespace(clearing_observations[i], min_x, min_y, max_x, max_y);
@@ -520,6 +525,7 @@ void ObstacleLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, i
 }
 
 //如下这两个函数，适用于动态障碍物添加和清除的函数。obstacle_layer有这个函数，但是暂时没有用到
+//就是用来添加虚拟墙的吧
 void ObstacleLayer::addStaticObservation(costmap_2d::Observation& obs, bool marking, bool clearing)
 {
   if (marking)
@@ -571,10 +577,14 @@ bool ObstacleLayer::getClearingObservations(std::vector<Observation>& clearing_o
   return current;
 }
 
+
+
+
+
 void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, double* min_x, double* min_y,
                                               double* max_x, double* max_y)
 {
-  //单次观测的坐标原点，即sensor在global_map下的坐标点
+  //单次观测的坐标原点，即sensor坐标点在global_map下的坐标
   double ox = clearing_observation.origin_.x;
   double oy = clearing_observation.origin_.y;
   pcl::PointCloud < pcl::PointXYZ > cloud = *(clearing_observation.cloud_);
@@ -596,7 +606,7 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
   double map_end_x = origin_x + size_x_ * resolution_;
   double map_end_y = origin_y + size_y_ * resolution_;
 
-  //这么一修改，最大最小值都等于ox，oy了
+  // 这么一修改，最大最小值都等于ox，oy了
   touch(ox, oy, min_x, min_y, max_x, max_y);
 
   // for each point in the cloud, we want to trace a line from the origin and clear obstacles along it
@@ -650,7 +660,8 @@ void ObstacleLayer::raytraceFreespace(const Observation& clearing_observation, d
     if (!worldToMap(wx, wy, x1, y1))
       continue;
 
-    //这一部分实在看不懂是什么意思啊
+    // 这一部分实在看不懂是什么意思啊
+    // 将raytrace距离，改为网格距离
     unsigned int cell_raytrace_range = cellDistance(clearing_observation.raytrace_range_);
     MarkCell marker(costmap_, FREE_SPACE);
     // and finally... we can execute our trace to clear obstacles along that line

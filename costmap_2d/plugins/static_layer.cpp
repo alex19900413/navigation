@@ -270,6 +270,8 @@ void StaticLayer::reset()
   }
 }
 
+
+// 对于静态地图来说，只要坐标原点不变化，则地图边界不会发生变化
 void StaticLayer::updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x, double* min_y,
                                double* max_x, double* max_y)
 {

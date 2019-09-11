@@ -106,7 +106,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   std::string tf_error;
   // we need to make sure that the transform between the robot base frame and the global frame is available
   //kinetic版本才有这个函数,melodic都没有这个函数了
-  //如果没有找到tf变换关系,就会阻塞在这里
+  //如果没有找到tf变换关系,就会阻塞在这里.即必须有map，odom，base_link才能创建
   while (ros::ok()
       && !tf_.waitForTransform(global_frame_, robot_base_frame_, ros::Time(), ros::Duration(0.1), ros::Duration(0.01),
                                &tf_error))
@@ -124,6 +124,8 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   }
 
   // check if we want a rolling window version of the costmap
+  // 地图参数，定义在local/global_costmap_params.yaml文件中
+  // 后两个参数没有定义。但是在layer初始化时会用其参数再次更新
   bool rolling_window, track_unknown_space, always_send_full_costmap;
   private_nh.param("rolling_window", rolling_window, false);
   private_nh.param("track_unknown_space", track_unknown_space, false);
@@ -203,6 +205,7 @@ Costmap2DROS::Costmap2DROS(std::string name, tf::TransformListener& tf) :
   // Create a time r to check if the robot is moving
   //创建一个定时器去检查小车是否有移动
   robot_stopped_ = false;
+  //每0.1s检查一下机器人的状态
   timer_ = private_nh.createTimer(ros::Duration(.1), &Costmap2DROS::movementCB, this);
 
   //加载动态参数，这里面包含了地图大小，坐标原点，机器人尺寸等参数。local_costmap的大小就是通过这里设定的
@@ -410,6 +413,13 @@ void Costmap2DROS::setUnpaddedRobotFootprint(const std::vector<geometry_msgs::Po
   layered_costmap_->setFootprint(padded_footprint_);
 }
 
+
+
+
+
+
+
+// 检查机器人的运动状态，判断机器人是停下来了，还是在移动
 void Costmap2DROS::movementCB(const ros::TimerEvent &event)
 {
   // don't allow configuration to happen while this check occurs
@@ -436,6 +446,11 @@ void Costmap2DROS::movementCB(const ros::TimerEvent &event)
   }
 }
 
+
+
+
+
+// 按一定的频率刷新地图
 void Costmap2DROS::mapUpdateLoop(double frequency)
 {
   // the user might not want to run the loop every cycle
@@ -487,6 +502,8 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
 }
 
 
+
+//调用layered_costmap更新costmap,并发布机器人位姿
 void Costmap2DROS::updateMap()
 {
   if (!stop_updates_)
@@ -504,6 +521,7 @@ void Costmap2DROS::updateMap()
       */
       layered_costmap_->updateMap(x, y, yaw);
 
+      //发布机器人的位姿
       geometry_msgs::PolygonStamped footprint;
       footprint.header.frame_id = global_frame_;
       footprint.header.stamp = ros::Time::now();

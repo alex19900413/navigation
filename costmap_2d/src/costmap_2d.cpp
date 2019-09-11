@@ -259,15 +259,19 @@ void Costmap2D::worldToMapEnforceBounds(double wx, double wy, int& mx, int& my) 
   }
 }
 
+// 参数是地图左下角在世界坐标系下的值
+// 分local_costmap和 global_costmap两种
 void Costmap2D::updateOrigin(double new_origin_x, double new_origin_y)
 {
   // project the new origin into the grid
   int cell_ox, cell_oy;
+  // 在图像坐标系下，新的坐标点在与原坐标点的距离
   cell_ox = int((new_origin_x - origin_x_) / resolution_);
   cell_oy = int((new_origin_y - origin_y_) / resolution_);
 
   // compute the associated world coordinates for the origin cell
   // because we want to keep things grid-aligned
+  // 网格坐标原点不就是给定参数的值吗？
   double new_grid_ox, new_grid_oy;
   new_grid_ox = origin_x_ + cell_ox * resolution_;
   new_grid_oy = origin_y_ + cell_oy * resolution_;
@@ -277,7 +281,9 @@ void Costmap2D::updateOrigin(double new_origin_x, double new_origin_y)
   int size_y = size_y_;
 
   // we need to compute the overlap of the new and existing windows
+  //图像坐标，在costmap_中的左下角和右上角点。这两个点可以构成一个区域
   int lower_left_x, lower_left_y, upper_right_x, upper_right_y;
+  //假设cell_ox<0,且|cell_ox| < size_x
   lower_left_x = min(max(cell_ox, 0), size_x);
   lower_left_y = min(max(cell_oy, 0), size_y);
   upper_right_x = min(max(cell_ox + size_x, 0), size_x);
@@ -290,9 +296,12 @@ void Costmap2D::updateOrigin(double new_origin_x, double new_origin_y)
   unsigned char* local_map = new unsigned char[cell_size_x * cell_size_y];
 
   // copy the local window in the costmap to the local map
+  //给定地图costmap_,地图中的起点，x，y，地图宽度方向网格数量size_x
+  //拷贝指定大小cell_size_x,cell_size_y的网格到local_map,起点是0,0，dest_map宽度方向网格数量为cell_size_x
   copyMapRegion(costmap_, lower_left_x, lower_left_y, size_x_, local_map, 0, 0, cell_size_x, cell_size_x, cell_size_y);
 
   // now we'll set the costmap to be completely unknown if we track unknown space
+  // 清空costmap
   resetMaps();
 
   // update the origin with the appropriate world coordinates
@@ -309,6 +318,10 @@ void Costmap2D::updateOrigin(double new_origin_x, double new_origin_y)
   // make sure to clean up
   delete[] local_map;
 }
+
+
+
+
 
 bool Costmap2D::setConvexPolygonCost(const std::vector<geometry_msgs::Point>& polygon, unsigned char cost_value)
 {

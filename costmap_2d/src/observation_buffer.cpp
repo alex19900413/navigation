@@ -148,7 +148,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
     Stamped < tf::Vector3 > local_origin(tf::Vector3(0, 0, 0),
                             pcl_conversions::fromPCL(cloud.header).stamp, origin_frame);
     tf_.waitForTransform(global_frame_, local_origin.frame_id_, local_origin.stamp_, ros::Duration(0.5));
-    //激光雷达点云数据在地图坐标系下的坐标值
+    //得到激光雷达在全局坐标系下的点
     tf_.transformPoint(global_frame_, local_origin, global_origin);
     //所以观测点的坐标原点，是传感器在map坐标系下的值
     observation_list_.front().origin_.x = global_origin.getX();
@@ -199,6 +199,7 @@ void ObservationBuffer::bufferCloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
   }
 
   // if the update was successful, we want to update the last updated time
+  //晚于最新的scan的时间
   last_updated_ = ros::Time::now();
 
   // we'll also remove any stale observations from the list
@@ -220,13 +221,17 @@ void ObservationBuffer::getObservations(vector<Observation>& observations)
   }
 }
 
+
+
+// 清除旧的障碍物点
 void ObservationBuffer::purgeStaleObservations()
 {
   if (!observation_list_.empty())
   {
     list<Observation>::iterator obs_it = observation_list_.begin();
     // if we're keeping observations for no time... then we'll only keep one observation
-    //设置为0，即不保留之前观测的数据，observation_list只保留当场观测数据
+    // 设置为0，即不保留之前观测的数据，observation_list只保留当场观测数据
+    // 直接返回了
     if (observation_keep_time_ == ros::Duration(0.0))
     {
       //把第二个元素到最后一个元素中间的都清除掉，移除[first,last）的元素

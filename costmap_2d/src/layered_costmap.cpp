@@ -68,7 +68,7 @@ LayeredCostmap::LayeredCostmap(std::string global_frame, bool rolling_window, bo
   if (track_unknown)
     costmap_.setDefaultValue(255);
   else
-    costmap_.setDefaultValue(0);
+    costmap_.setDefaultValue(0);    //white,free
 }
 
 LayeredCostmap::~LayeredCostmap()
@@ -84,6 +84,7 @@ void LayeredCostmap::resizeMap(unsigned int size_x, unsigned int size_y, double 
 {
   boost::unique_lock<Costmap2D::mutex_t> lock(*(costmap_.getMutex()));
   size_locked_ = size_locked;
+  // 修改costmap_大小
   costmap_.resizeMap(size_x, size_y, resolution, origin_x, origin_y);
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
       ++plugin)
@@ -95,8 +96,8 @@ void LayeredCostmap::resizeMap(unsigned int size_x, unsigned int size_y, double 
 
 
 
-//每个layer的onInitLayer函数里,dy_cb新建的线程中,都会调用此函数进行更新.当然了，参数更新了，地图也会更新
-//
+
+//单独一个地图更新线程，根据机器人的位姿，循环更新如obstacle_map，inflation_map等
 void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 {
   // Lock for the remainder of this function, some plugins (e.g. VoxelLayer)
@@ -109,12 +110,13 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
   {
     double new_origin_x = robot_x - costmap_.getSizeInMetersX() / 2;
     double new_origin_y = robot_y - costmap_.getSizeInMetersY() / 2;
+    //costmap的坐标原点是左下角
     costmap_.updateOrigin(new_origin_x, new_origin_y);
   }
 
   if (plugins_.size() == 0)
     return;
-  //这个值给的很奇怪。这是地图尺寸的世界坐标系map下的值
+  //这个值给的很奇怪。这是地图尺寸的 世界坐标系 map下的值
   minx_ = miny_ = 1e30;
   maxx_ = maxy_ = -1e30;
 
@@ -126,7 +128,9 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
     double prev_miny = miny_;
     double prev_maxx = maxx_;
     double prev_maxy = maxy_;
-    //更新地图边界。如障碍物层更新完之后，边界就变得跟地图大小差不多了
+    //调用各层的函数更新地图边界。
+    // 一开始是更新global_costmap的static_layer，所以更新后的边界只会变小（local_costmap的边界小一些）
+    // 后面的参数是取地址，得到指针
     (*plugin)->updateBounds(robot_x, robot_y, robot_yaw, &minx_, &miny_, &maxx_, &maxy_);
     //这么判断估计是怕updateBounds出问题，造成越界吧
     if (minx_ > prev_minx || miny_ > prev_miny || maxx_ < prev_maxx || maxy_ < prev_maxy)
@@ -137,6 +141,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
                         minx_, miny_, maxx_ , maxy_,
                         (*plugin)->getName().c_str());
     }
+
   }
 
   //获得地图的新边界
@@ -161,6 +166,7 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
        ++plugin)
   {
+    // 根据边界来更新costmap的cost值，所以global_costmap和local_costmap是不一样的
     (*plugin)->updateCosts(costmap_, x0, y0, xn, yn);
   }
 

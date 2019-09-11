@@ -3,7 +3,7 @@
 namespace costmap_2d
 {
 
-//都是在世界坐标系global_map下的坐标值
+// 都是在世界坐标系global_map下的坐标值
 void CostmapLayer::touch(double x, double y, double* min_x, double* min_y, double* max_x, double* max_y)
 {
     *min_x = std::min(x, *min_x);
@@ -14,6 +14,7 @@ void CostmapLayer::touch(double x, double y, double* min_x, double* min_y, doubl
 
 void CostmapLayer::matchSize()
 {
+    // 在构建local_costmap或global_costmap时，定义了layered_costmap，从而也确定了地图大小
     Costmap2D* master = layered_costmap_->getCostmap();
     resizeMap(master->getSizeInCellsX(), master->getSizeInCellsY(), master->getResolution(),
             master->getOriginX(), master->getOriginY());

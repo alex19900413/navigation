@@ -322,15 +322,16 @@ protected:
                        unsigned int region_size_y)
     {
       // we'll first need to compute the starting points for each map
+      // 计算两张地图的起点指针
       data_type* sm_index = source_map + (sm_lower_left_y * sm_size_x + sm_lower_left_x);
       data_type* dm_index = dest_map + (dm_lower_left_y * dm_size_x + dm_lower_left_x);
 
       // now, we'll copy the source map into the destination map
-      for (unsigned int i = 0; i < region_size_y; ++i)
+      for (unsigned int i = 0; i < region_size_y; ++i)    //遍历行
       {
-        memcpy(dm_index, sm_index, region_size_x * sizeof(data_type));
-        sm_index += sm_size_x;
-        dm_index += dm_size_x;
+        memcpy(dm_index, sm_index, region_size_x * sizeof(data_type));  //拷贝source_map的一行给到dest_map中
+        sm_index += sm_size_x;   //修改source_map的的指针
+        dm_index += dm_size_x;   //修改dest_map的指针
       }
     }
 
@@ -429,6 +430,7 @@ protected:
   double origin_x_;
   double origin_y_;
   unsigned char* costmap_;
+  // 这个参数在每个layer中又会被更新。先是创建layered_costmap时，会更新此值。然后初始化每个layer时，又会根据局部参数更新此值
   unsigned char default_value_;
 
   class MarkCell

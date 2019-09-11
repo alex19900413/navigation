@@ -67,8 +67,11 @@ public:
       index_(i), x_(x), y_(y), src_x_(sx), src_y_(sy)
   {
   }
+  // costmap中的索引
   unsigned int index_;
+  // 当前索引对应的costmap中的x，y坐标
   unsigned int x_, y_;
+  // 离当前索引最近的障碍物在costmap中的x，y坐标
   unsigned int src_x_, src_y_;
 };
 
@@ -104,9 +107,9 @@ public:
     unsigned char cost = 0;
     if (distance == 0)
       cost = LETHAL_OBSTACLE;
-    else if (distance * resolution_ <= inscribed_radius_)
+    else if (distance * resolution_ <= inscribed_radius_)     // 小于膨胀半径
       cost = INSCRIBED_INFLATED_OBSTACLE;
-    else
+    else      // 大于膨胀半径的cost值，也不仅仅是free啊
     {
       // make sure cost falls off by Euclidean distance
       double euclidean_distance = distance * resolution_;
@@ -174,6 +177,7 @@ private:
   bool inflate_unknown_;
   unsigned int cell_inflation_radius_;
   unsigned int cached_cell_inflation_radius_;
+  // 字典保存inflation网格的信息。第一个参数是障碍物距离，第二个参数是保存网格信息
   std::map<double, std::vector<CellData> > inflation_cells_;
 
   double resolution_;
