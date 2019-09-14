@@ -154,8 +154,9 @@ private:
   BFL::LinearAnalyticMeasurementModelGaussianUncertainty* gps_meas_model_;
   BFL::LinearAnalyticConditionalGaussian*                 uwb_meas_pdf_;
   BFL::LinearAnalyticMeasurementModelGaussianUncertainty* uwb_meas_model_;
+  // KF滤波器做先验 
   BFL::Gaussian*                                          prior_;
-  //扩展卡尔曼滤波器
+  // 扩展卡尔曼滤波器
   BFL::ExtendedKalmanFilter*                              filter_;
   MatrixWrapper::SymmetricMatrix                          odom_covariance_, imu_covariance_, vo_covariance_, gps_covariance_,uwb_covariance_;
 

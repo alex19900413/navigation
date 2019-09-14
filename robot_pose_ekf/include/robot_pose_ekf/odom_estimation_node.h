@@ -111,10 +111,11 @@ private:
   ros::NodeHandle node_;
   ros::Timer timer_;
   ros::Publisher pose_pub_;
-  ros::Subscriber odom_sub_, imu_sub_, vo_sub_,gps_sub_;
+  ros::Subscriber odom_sub_, imu_sub_, vo_sub_,gps_sub_,uwb_sub_;
   ros::ServiceServer state_srv_;
 
   // ekf filter
+  // 自定义里程计滤波器.实际上就是一个EKF滤波器
   OdomEstimation my_filter_;
 
   // estimated robot pose message to send
@@ -135,7 +136,9 @@ private:
   //必须有传感器是激活状态，才会被用作update操作。当传感器收到第二帧数据时，才会被激活。当传感器数据中断超过1s时，初始化和激活flag都会被置false
   bool odom_active_, imu_active_, vo_active_, gps_active_, uwb_active_;
   bool odom_used_, imu_used_, vo_used_, gps_used_,uwb_used_;
+  // 传感器初始化状态.当传感器被激活或超时时,会被置为false.当收到一帧传感器数据时,则会被置为true
   bool odom_initializing_, imu_initializing_, vo_initializing_, gps_initializing_, uwb_initializing_;
+  // 传感器数据最大间隔时间,默认1s
   double timeout_;
   MatrixWrapper::SymmetricMatrix odom_covariance_, imu_covariance_, vo_covariance_, gps_covariance_, uwb_covariance_;
   bool debug_, self_diagnose_;
@@ -145,6 +148,7 @@ private:
   std::ofstream odom_file_, imu_file_, vo_file_, gps_file_, corr_file_, time_file_, extra_file_, uwb_file_;
 
   // counters
+  // 纯粹用来debug的
   unsigned int odom_callback_counter_, imu_callback_counter_, vo_callback_counter_,gps_callback_counter_, ekf_sent_counter_,uwb_callback_counter_;
 
 }; // class

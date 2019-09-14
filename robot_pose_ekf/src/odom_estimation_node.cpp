@@ -65,7 +65,7 @@ namespace estimation
       odom_covariance_(6),
       imu_covariance_(3),
       vo_covariance_(6),
-      gps_covariance_(3),
+      gps_covariance_(3),   // 只保留了x,y,z的协方差
       uwb_covariance_(3),
       odom_callback_counter_(0),
       imu_callback_counter_(0),
@@ -80,6 +80,7 @@ namespace estimation
     // paramters
     nh_private.param("output_frame", output_frame_, std::string("odom_combined"));
     nh_private.param("base_footprint_frame", base_footprint_frame_, std::string("base_footprint"));
+    // 传感器超时时间
     nh_private.param("sensor_timeout", timeout_, 1.0);
     nh_private.param("odom_used", odom_used_, true);
     nh_private.param("imu_used",  imu_used_, true);
@@ -148,7 +149,7 @@ namespace estimation
 
     if (uwb_used_){
       ROS_DEBUG("UWB sensor can be used");
-      gps_sub_ = nh.subscribe("uwb", 10, &OdomEstimationNode::uwbCallback, this);
+      uwb_sub_ = nh.subscribe("uwb", 10, &OdomEstimationNode::uwbCallback, this);
     }
     else ROS_DEBUG("GPS sensor will NOT be used");
 
@@ -256,6 +257,7 @@ namespace estimation
 
 
   // callback function for imu data
+  // imu只用到了角度信息
   void OdomEstimationNode::imuCallback(const ImuConstPtr& imu)
   {
     imu_callback_counter_++;
@@ -305,14 +307,14 @@ namespace estimation
     // activate imu
     if (!imu_active_) {
       if (!imu_initializing_){
-	imu_initializing_ = true;
-	imu_init_stamp_ = imu_stamp_;
-	ROS_INFO("Initializing Imu sensor");      
+        imu_initializing_ = true;
+        imu_init_stamp_ = imu_stamp_;
+        ROS_INFO("Initializing Imu sensor");      
       }
       if ( filter_stamp_ >= imu_init_stamp_){
-	imu_active_ = true;
-	imu_initializing_ = false;
-	ROS_INFO("Imu sensor activated");      
+        imu_active_ = true;
+        imu_initializing_ = false;
+        ROS_INFO("Imu sensor activated");      
       }
       else ROS_DEBUG("Waiting to activate IMU, because IMU measurements are still %f sec in the future.", 
 		    (imu_init_stamp_ - filter_stamp_).toSec());
@@ -370,7 +372,7 @@ namespace estimation
     }
   };
 
-
+  // 也是odometry类型
   void OdomEstimationNode::gpsCallback(const GpsConstPtr& gps)
   {
     gps_callback_counter_++;
@@ -389,9 +391,12 @@ namespace estimation
       gps_pose.covariance[6*2 + 2] = std::numeric_limits<double>::max();
     }
     poseMsgToTF(gps_pose.pose, gps_meas_);
+    // gps协方差是3x3的,虽然位姿协方差是6x6的,但是gps没有方向的
     for (unsigned int i=0; i<3; i++)
       for (unsigned int j=0; j<3; j++)
         gps_covariance_(i+1, j+1) = gps_pose.covariance[6*i+j];
+    // StampedTransform的参数,input,time,frame_id,child_frame_id
+    // 这里应该是构建base_link到gps的tf变换.显然input不是这个意思
     my_filter_.addMeasurement(StampedTransform(gps_meas_.inverse(), gps_stamp_, base_footprint_frame_, "gps"), gps_covariance_);
     
     // activate gps
@@ -530,7 +535,8 @@ namespace estimation
     if (odom_active_ || imu_active_ || vo_active_ || gps_active_ || uwb_active_){
       
       // update filter at time where all sensor measurements are available
-      //将filter_stamp设置为最早的传感器的时间。本来filter_stamp是要大于所有传感器时间的
+      // 将filter_stamp设置为最早的传感器的时间。本来filter_stamp是要大于所有传感器时间的
+      // 只要滤波器时间大于传感器时间,那就可以将传感器激活了
       if (odom_active_)  filter_stamp_ = min(filter_stamp_, odom_stamp_);
       if (imu_active_)   filter_stamp_ = min(filter_stamp_, imu_stamp_);
       if (vo_active_)    filter_stamp_ = min(filter_stamp_, vo_stamp_);
@@ -547,7 +553,7 @@ namespace estimation
         if (my_filter_.update(odom_active_, imu_active_,gps_active_, vo_active_, uwb_active_,  filter_stamp_, diagnostics)){
           
           // output most recent estimate and relative covariance
-          //发布最近的状态估计及协方差矩阵
+          // 发布最近的状态估计及协方差矩阵
           my_filter_.getEstimate(output_);
           //发布融合后的位姿，只是用来debug的吧
           pose_pub_.publish(output_);
@@ -579,6 +585,7 @@ namespace estimation
 
 
       // initialize filer with odometry frame
+      // 一般使用odom的数据来作为先验,初始化滤波器
       //如果有gps数据，则可以用imu来初始化，否则得用odom来初始化。odom可以是轮速计得到的，也可以是vo计算出来的
       //如果用uwb的话，是不是可以用uwb+imu来初始化呢。不用，还是用odom来初始化
       if (imu_active_ && gps_active_ && !my_filter_.isInitialized()) {
@@ -644,6 +651,11 @@ bool OdomEstimationNode::getStatus(robot_pose_ekf::GetStatus::Request& req, robo
   ss << "   - is "; if (!gps_active_) ss << "NOT "; ss << "active" << endl;
   ss << "   - received " << gps_callback_counter_ << " messages" << endl;
   ss << "   - listens to topic " << gps_sub_.getTopic() << endl;
+  ss << " * UWB sensor" << endl;
+  ss << "   - is "; if (!uwb_used_) ss << "NOT "; ss << "used" << endl;
+  ss << "   - is "; if (!uwb_active_) ss << "NOT "; ss << "active" << endl;
+  ss << "   - received " << uwb_callback_counter_ << " messages" << endl;
+  ss << "   - listens to topic " << uwb_sub_.getTopic() << endl;
   ss << "Output:" << endl;
   ss << " * Robot pose ekf filter" << endl;
   ss << "   - is "; if (!my_filter_.isInitialized()) ss << "NOT "; ss << "active" << endl;

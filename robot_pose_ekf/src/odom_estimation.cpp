@@ -59,7 +59,7 @@ namespace estimation
     base_footprint_frame_(std::string("base_footprint"))
   {
     // create SYSTEM MODEL
-    //在概率机器人中也叫预测模型，这里初始化模型的均值和方差
+    // 在概率机器人中也叫预测模型，这里初始化模型的均值和方差
     ColumnVector sysNoise_Mu(6);  sysNoise_Mu = 0;
     SymmetricMatrix sysNoise_Cov(6); sysNoise_Cov = 0;
     for (unsigned int i=1; i<=6; i++) sysNoise_Cov(i,i) = pow(1000.0,2);
@@ -69,13 +69,16 @@ namespace estimation
     sys_pdf_   = new NonLinearAnalyticConditionalGaussianOdo(system_Uncertainty);
     sys_model_ = new AnalyticSystemModelGaussianUncertainty(sys_pdf_);
 
+    // 接下来创建观测模型
     // create MEASUREMENT MODEL ODOM
     ColumnVector measNoiseOdom_Mu(6);  measNoiseOdom_Mu = 0;
     SymmetricMatrix measNoiseOdom_Cov(6);  measNoiseOdom_Cov = 0;
     for (unsigned int i=1; i<=6; i++) measNoiseOdom_Cov(i,i) = 1;
     Gaussian measurement_Uncertainty_Odom(measNoiseOdom_Mu, measNoiseOdom_Cov);
     Matrix Hodom(6,6);  Hodom = 0;
+    // 里程计用到x,y,yaw
     Hodom(1,1) = 1;    Hodom(2,2) = 1;    Hodom(6,6) = 1;
+    // 所有传感器都采用线性模型进行估计
     odom_meas_pdf_   = new LinearAnalyticConditionalGaussian(Hodom, measurement_Uncertainty_Odom);
     odom_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(odom_meas_pdf_);
 
@@ -85,6 +88,7 @@ namespace estimation
     for (unsigned int i=1; i<=3; i++) measNoiseImu_Cov(i,i) = 1;
     Gaussian measurement_Uncertainty_Imu(measNoiseImu_Mu, measNoiseImu_Cov);
     Matrix Himu(3,6);  Himu = 0;
+    // imu只用到角度信息
     Himu(1,4) = 1;    Himu(2,5) = 1;    Himu(3,6) = 1;
     imu_meas_pdf_   = new LinearAnalyticConditionalGaussian(Himu, measurement_Uncertainty_Imu);
     imu_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(imu_meas_pdf_);
@@ -95,6 +99,7 @@ namespace estimation
     for (unsigned int i=1; i<=6; i++) measNoiseVo_Cov(i,i) = 1;
     Gaussian measurement_Uncertainty_Vo(measNoiseVo_Mu, measNoiseVo_Cov);
     Matrix Hvo(6,6);  Hvo = 0;
+    // 视觉里程计都用到了
     Hvo(1,1) = 1;    Hvo(2,2) = 1;    Hvo(3,3) = 1;    Hvo(4,4) = 1;    Hvo(5,5) = 1;    Hvo(6,6) = 1;
     vo_meas_pdf_   = new LinearAnalyticConditionalGaussian(Hvo, measurement_Uncertainty_Vo);
     vo_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(vo_meas_pdf_);
@@ -114,7 +119,7 @@ namespace estimation
     SymmetricMatrix measNoiseUwb_Cov(3);  measNoiseUwb_Cov = 0;
     for (unsigned int i=1; i<=3; i++) measNoiseUwb_Cov(i,i) = 1;
     Gaussian measurement_Uncertainty_UWB(measNoiseUwb_Mu, measNoiseGps_Cov);
-    Matrix Huwb(3,6);  Huwb = 0;
+    Matrix Huwb(3,3);  Huwb = 0;
     Huwb(1,1) = 1;    Huwb(2,2) = 1;    Huwb(3,3) = 1;    
     uwb_meas_pdf_   = new LinearAnalyticConditionalGaussian(Huwb, measurement_Uncertainty_UWB);
     uwb_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(uwb_meas_pdf_);
@@ -142,7 +147,7 @@ namespace estimation
 
 
   // initialize prior density of filter 
-  //这个就是状态预测了，用一个时间间隔内的位移和片杭椒，结合系统状态量和协方差进行预测。每个spin中都会执行
+  // 这个就是状态预测了，用一个时间间隔内的位移和偏航角，结合系统状态量和协方差进行预测。每个spin中都会执行
   void OdomEstimation::initialize(const Transform& prior, const Time& time)
   {
     // set prior of filter
@@ -153,8 +158,8 @@ namespace estimation
     //协方差，相互之间无关联。每个轴给了一个非常小的方差
     for (unsigned int i=1; i<=6; i++) {
       for (unsigned int j=1; j<=6; j++){
-	if (i==j)  prior_Cov(i,j) = pow(0.001,2);
-	else prior_Cov(i,j) = 0;
+	      if (i==j)  prior_Cov(i,j) = pow(0.001,2);
+	      else prior_Cov(i,j) = 0;
       }
     }
     //6轴状态的高斯分布
@@ -171,6 +176,13 @@ namespace estimation
     // filter initialized
     filter_initialized_ = true;
   }
+
+
+
+
+
+
+
 
 
 
@@ -206,6 +218,7 @@ namespace estimation
     
     // process odom measurement
     // ------------------------
+    // 开始里程计测量更新
     ROS_DEBUG("Process odom meas");
     if (odom_active){
       //查找tf变换是否可行。这里的里程计frame要改,base_footprint_frame可以在launch文件中改
@@ -219,28 +232,29 @@ namespace estimation
       transformer_.lookupTransform("odom", base_footprint_frame_, filter_time, odom_meas_);
       //初始值为false
       if (odom_initialized_){
-	// convert absolute odom measurements to relative odom measurements in horizontal plane
-  // 将绝对里程测量值转换至水平平面内的相对里程计测量值（坐标转换tf仍然由旋转和平移构成）
-  //角度用的先验，但是位姿用的上次估计值-上次测量+这次测量，why？这次测量-上次测量，就是位姿增量哈
-	Transform odom_rel_frame =  Transform(tf::createQuaternionFromYaw(filter_estimate_old_vec_(6)), 
-					      filter_estimate_old_.getOrigin()) * odom_meas_old_.inverse() * odom_meas_;
-	ColumnVector odom_rel(6); 
-	decomposeTransform(odom_rel_frame, odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
-  //如果角度有溢出，则修正角度
-	angleOverflowCorrect(odom_rel(6), filter_estimate_old_vec_(6));
-	// update filter
-  //更新协方差矩阵
-	odom_meas_pdf_->AdditiveNoiseSigmaSet(odom_covariance_ * pow(dt,2));
+        // convert absolute odom measurements to relative odom measurements in horizontal plane
+        // 将绝对里程测量值转换至水平平面内的相对里程计测量值（坐标转换tf仍然由旋转和平移构成）
+        // 搞不懂是怎么把绝对测量值,转换过到水平面的相对测量值的
+        // 把这个操作理解成预测,把下面的update理解为更新
+        Transform odom_rel_frame =  Transform(tf::createQuaternionFromYaw(filter_estimate_old_vec_(6)), 
+                      filter_estimate_old_.getOrigin()) * odom_meas_old_.inverse() * odom_meas_;
+        ColumnVector odom_rel(6); 
+        decomposeTransform(odom_rel_frame, odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
+        //确保角度变化在[-pi,pi]之间
+        angleOverflowCorrect(odom_rel(6), filter_estimate_old_vec_(6));
+        // update filter
+        // 更新协方差矩阵
+        odom_meas_pdf_->AdditiveNoiseSigmaSet(odom_covariance_ * pow(dt,2));
 
-        ROS_DEBUG("Update filter with odom measurement %f %f %f %f %f %f", 
-                  odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
-  //给里程计系统模型更新这次的测量值
-	filter_->Update(odom_meas_model_, odom_rel);
-	diagnostics_odom_rot_rel_ = odom_rel(6);
+              ROS_DEBUG("Update filter with odom measurement %f %f %f %f %f %f", 
+                        odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
+        // 给里程计系统模型更新这次的测量值
+        filter_->Update(odom_meas_model_, odom_rel);
+        diagnostics_odom_rot_rel_ = odom_rel(6);
       }
       else{
-	odom_initialized_ = true;
-	diagnostics_odom_rot_rel_ = 0;
+        odom_initialized_ = true;
+        diagnostics_odom_rot_rel_ = 0;
       }
       odom_meas_old_ = odom_meas_;
     }
@@ -257,20 +271,20 @@ namespace estimation
       }
       transformer_.lookupTransform("imu_link", base_footprint_frame_, filter_time, imu_meas_);
       if (imu_initialized_){
-	// convert absolute imu yaw measurement to relative imu yaw measurement 
-	Transform imu_rel_frame =  filter_estimate_old_ * imu_meas_old_.inverse() * imu_meas_;
-	ColumnVector imu_rel(3); double tmp;
-	decomposeTransform(imu_rel_frame, tmp, tmp, tmp, tmp, tmp, imu_rel(3));
-	decomposeTransform(imu_meas_,     tmp, tmp, tmp, imu_rel(1), imu_rel(2), tmp);
-	angleOverflowCorrect(imu_rel(3), filter_estimate_old_vec_(6));
-	diagnostics_imu_rot_rel_ = imu_rel(3);
-	// update filter
-	imu_meas_pdf_->AdditiveNoiseSigmaSet(imu_covariance_ * pow(dt,2));
-	filter_->Update(imu_meas_model_,  imu_rel);
+        // convert absolute imu yaw measurement to relative imu yaw measurement 
+        Transform imu_rel_frame =  filter_estimate_old_ * imu_meas_old_.inverse() * imu_meas_;
+        ColumnVector imu_rel(3); double tmp;
+        decomposeTransform(imu_rel_frame, tmp, tmp, tmp, tmp, tmp, imu_rel(3));
+        decomposeTransform(imu_meas_,     tmp, tmp, tmp, imu_rel(1), imu_rel(2), tmp);
+        angleOverflowCorrect(imu_rel(3), filter_estimate_old_vec_(6));
+        diagnostics_imu_rot_rel_ = imu_rel(3);
+        // update filter
+        imu_meas_pdf_->AdditiveNoiseSigmaSet(imu_covariance_ * pow(dt,2));
+        filter_->Update(imu_meas_model_,  imu_rel);
       }
       else{
-	imu_initialized_ = true;
-	diagnostics_imu_rot_rel_ = 0;
+        imu_initialized_ = true;
+        diagnostics_imu_rot_rel_ = 0;
       }
       imu_meas_old_ = imu_meas_; 
     }
@@ -288,14 +302,14 @@ namespace estimation
       }
       transformer_.lookupTransform("vo", base_footprint_frame_, filter_time, vo_meas_);
       if (vo_initialized_){
-	// convert absolute vo measurements to relative vo measurements
-	Transform vo_rel_frame =  filter_estimate_old_ * vo_meas_old_.inverse() * vo_meas_;
-	ColumnVector vo_rel(6);
-	decomposeTransform(vo_rel_frame, vo_rel(1),  vo_rel(2), vo_rel(3), vo_rel(4), vo_rel(5), vo_rel(6));
-	angleOverflowCorrect(vo_rel(6), filter_estimate_old_vec_(6));
-	// update filter
-        vo_meas_pdf_->AdditiveNoiseSigmaSet(vo_covariance_ * pow(dt,2));
-        filter_->Update(vo_meas_model_,  vo_rel);
+        // convert absolute vo measurements to relative vo measurements
+        Transform vo_rel_frame =  filter_estimate_old_ * vo_meas_old_.inverse() * vo_meas_;
+        ColumnVector vo_rel(6);
+        decomposeTransform(vo_rel_frame, vo_rel(1),  vo_rel(2), vo_rel(3), vo_rel(4), vo_rel(5), vo_rel(6));
+        angleOverflowCorrect(vo_rel(6), filter_estimate_old_vec_(6));
+        // update filter
+              vo_meas_pdf_->AdditiveNoiseSigmaSet(vo_covariance_ * pow(dt,2));
+              filter_->Update(vo_meas_model_,  vo_rel);
       }
       else vo_initialized_ = true;
       vo_meas_old_ = vo_meas_;
@@ -354,8 +368,6 @@ namespace estimation
     else uwb_initialized_ = false;
 
 
-  
-    
     // remember last estimate
     filter_estimate_old_vec_ = filter_->PostGet()->ExpectedValueGet();
     tf::Quaternion q;
@@ -371,12 +383,20 @@ namespace estimation
     if (odom_active && imu_active){
       double diagnostics = fabs(diagnostics_odom_rot_rel_ - diagnostics_imu_rot_rel_)/dt;
       if (diagnostics > 0.3 && dt > 0.01){
-	diagnostics_res = false;
+	      diagnostics_res = false;
       }
     }
 
     return true;
   };
+
+
+
+
+
+
+
+
 
   void OdomEstimation::addMeasurement(const StampedTransform& meas)
   {
@@ -389,18 +409,22 @@ namespace estimation
     transformer_.setTransform( meas );
   }
 
+  // 将传感器数据添加到滤波器中.第一个参数是带时间的tf,第二个参数是对应的协方差
   void OdomEstimation::addMeasurement(const StampedTransform& meas, const MatrixWrapper::SymmetricMatrix& covar)
   {
     // check covariance
+    // 对角线的方差不能为0
     for (unsigned int i=0; i<covar.rows(); i++){
       if (covar(i+1,i+1) == 0){
         ROS_ERROR("Covariance specified for measurement on topic %s is zero", meas.child_frame_id_.c_str());
         return;
       }
     }
+
     // add measurements
     addMeasurement(meas);
     //modify wheelodom
+    // 修改协方差,是由传感器数据直接传进来的
     if (meas.child_frame_id_ == "odom") odom_covariance_ = covar;
     else if (meas.child_frame_id_ == "imu_link")  imu_covariance_  = covar;
     else if (meas.child_frame_id_ == "vo")   vo_covariance_   = covar;
@@ -408,6 +432,17 @@ namespace estimation
     else if (meas.child_frame_id_ == "uwb_label")  uwb_covariance_  = covar;
     else ROS_ERROR("Adding a measurement for an unknown sensor %s", meas.child_frame_id_.c_str());
   };
+
+
+
+
+
+
+
+
+
+
+
 
 
   // get latest filter posterior as vector
@@ -439,6 +474,7 @@ namespace estimation
   };
 
   // get most recent filter posterior as PoseWithCovarianceStamped
+  // 得到带协方差的位姿.通过查找tf,跟时间无关啊.
   void OdomEstimation::getEstimate(geometry_msgs::PoseWithCovarianceStamped& estimate)
   {
     // pose
@@ -448,7 +484,9 @@ namespace estimation
       ROS_ERROR("Cannot get transform at time %f", 0.0);
       return;
     }
+    
     transformer_.lookupTransform(output_frame_, base_footprint_frame_, ros::Time(), tmp);
+    // 将StampedTransform转换为Pose类型(位移+方向)
     poseTFToMsg(tmp, estimate.pose.pose);
 
     // header
@@ -456,13 +494,24 @@ namespace estimation
     estimate.header.frame_id = output_frame_;
 
     // covariance
+    // EKF滤波器更新协方差矩阵
     SymmetricMatrix covar =  filter_->PostGet()->CovarianceGet();
     for (unsigned int i=0; i<6; i++)
       for (unsigned int j=0; j<6; j++)
 	estimate.pose.covariance[6*i+j] = covar(i+1,j+1);
   };
 
+
+
+
+
+
+
+
+
+
   // correct for angle overflow
+  // 保证a在[-pi,pi]之间
   void OdomEstimation::angleOverflowCorrect(double& a, double ref)
   {
     while ((a-ref) >  M_PI) a -= 2*M_PI;
