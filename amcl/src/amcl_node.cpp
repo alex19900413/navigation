@@ -911,9 +911,9 @@ void AmclNode::savePoseToServer()
   //the latest map pose to store.  We'll take the covariance from
   // last_published_po We need to apply the last transform to the latest odom pose to get
   // se.
-  //latest_tf是odom-> map,latest_odom_pose_是base_link在odom下坐标值,相乘(向量加法)得到map -> base_link?
-  //前者是粒子滤波重采样后，odom和map的tf变换。后者就是odom推算出来的base_link的坐标                                                                                                                                                                                                                                          
-  tf::Pose map_pose = latest_tf_.inverse() * latest_odom_pose_;
+  // latest_tf是odom-> map,latest_odom_pose_是base_link在odom下坐标值,相乘(向量加法)得到base_link_to_map?
+  // 前者是粒子滤波重采样后，odom_to_map的tf变换。后者就是odom推算出来的base_link的坐标                                                                                                                                                                                                                                          
+  tf::Pose map_pose = latest_tf_.inverse() * latest_odom_pose_;   // 还是遵循从右往左看?? base_link_to_map
   double yaw,pitch,roll;
   map_pose.getBasis().getEulerYPR(yaw, pitch, roll);
 
