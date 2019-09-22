@@ -112,7 +112,7 @@ AMCLOdom::SetModel( odom_model_t type,
 
 ////////////////////////////////////////////////////////////////////////////////
 // Apply the action model
-//为了得到从t-1时刻到t时刻机器人运动模型的概率分布模型
+// 为了得到从t-1时刻到t时刻机器人运动模型的概率分布模型
 bool AMCLOdom::UpdateAction(pf_t *pf, AMCLSensorData *data)
 {
   //这个AMCLOdomData其实只有位姿与本时刻的变化量两部分组成

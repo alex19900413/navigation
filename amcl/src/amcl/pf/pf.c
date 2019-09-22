@@ -350,7 +350,7 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
 
 
 // Resample the distribution
-//低方差重采样+KLD边界，用第二个set重采样，然后将结果保存到第一个set中
+// 低方差重采样+KLD边界，用第二个set重采样，然后将结果保存到第一个set中
 void pf_update_resample(pf_t *pf)
 {
   int i;
@@ -401,7 +401,7 @@ void pf_update_resample(pf_t *pf)
   i = 0;
   m = 0;
   */
-  //这里不是低方差重采样，传统路线：离散采样器。粒子权重在前面更新过了，所以权重高的粒子会被比较大的概率随机提取
+  //这里不是低方差重采样，传统路线：离散采样器。粒子权重在前面更新过了(激光数据更新)，所以权重高的粒子会被比较大的概率随机提取
   while(set_b->sample_count < pf->max_samples)
   {
     sample_b = set_b->samples + set_b->sample_count++;
@@ -465,12 +465,13 @@ void pf_update_resample(pf_t *pf)
     total += sample_b->weight;
 
     // Add sample to histogram
-    //将样本添加到kdtree直方图，
+    // 将随机采到的样本添加到kdtree直方图，
     pf_kdtree_insert(set_b->kdtree, sample_b->pose, sample_b->weight);
 
     // See if we have enough samples yet
     // 如果采样到足够多的粒子，那就退出采样。kld采样边界的k值为啥是kdtree的叶子节点数量，而不是总数量？
-    //边界也是随着set_b的增加而改变的，当set_b的粒子达到人为设定的min_samples范围时，Mx可能已经大于min_samples了
+    // 边界也是随着set_b的增加而改变的，当set_b的粒子达到人为设定的min_samples范围时，Mx可能已经大于min_samples了
+    // 统计边界
     if (set_b->sample_count > pf_resample_limit(pf, set_b->kdtree->leaf_count))
       break;
   }

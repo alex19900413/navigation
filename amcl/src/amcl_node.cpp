@@ -76,7 +76,7 @@ double uwb_px,uwb_py;
 boost::mutex p_mutex;
 
 // Pose hypothesis
-//位姿预测
+// 位姿预测
 typedef struct
 {
   // Total weight (weights sum to 1)
@@ -556,6 +556,7 @@ AmclNode::AmclNode() :
   //用来发布map到odom的tf变换. 所以odom的位姿在amcl里被更新了? 粒子滤波后就更新了啊
   tfb_ = new tf::TransformBroadcaster();
   //tf坐标变换订阅者，订阅tf变化topic，调用transfromPoint来完成tf变换
+  // 用了tf2
   tf_ = new TransformListenerWrapper();
   
   //发布“后验位姿”pose,还有6x6的协方差矩阵（xyz，3个转角）
@@ -770,7 +771,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   }
   else if(laser_model_type_ == LASER_MODEL_LIKELIHOOD_FIELD){
     ROS_INFO("Initializing likelihood field model; this can take some time on large maps...");
-    //考虑了测量噪声，随机噪声，测量失败这三种噪声。是不是可以根据激光雷达的性能来调整这些参数？
+    // 考虑了测量噪声，随机噪声，测量失败这三种噪声。是不是可以根据激光雷达的性能来调整这些参数？
     laser_->SetModelLikelihoodField(z_hit_, z_rand_, sigma_hit_,
                                     laser_likelihood_max_dist_);
     ROS_INFO("Done initializing likelihood field model.");
@@ -1320,6 +1321,7 @@ AmclNode::globalLocalizationCallback(std_srvs::Empty::Request& req,
 
 
 // force nomotion updates (amcl updating without requiring motion)
+// 强制更新
 bool 
 AmclNode::nomotionUpdateCallback(std_srvs::Empty::Request& req,
                                      std_srvs::Empty::Response& res)
@@ -1513,10 +1515,11 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
     // Use the action data to update the filter
     //这里是调用的关键，我们随后分析.估计是用odom的位姿来预测滤波器粒子接下来的位姿。这是先验值
+    // 这根ekf里,更新提供的是相对值差不多的一个意思.这里提供的是delta值
     odom_->UpdateAction(pf_, (AMCLSensorData*)&odata);
 
     // Pose at last filter update
-    //this->pf_odom_pose = pose;
+    // this->pf_odom_pose = pose;
   }
 
 
@@ -1550,6 +1553,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     tf::Stamped<tf::Quaternion> inc_q(q, laser_scan->header.stamp,
                                       laser_scan->header.frame_id);
 
+    // 转换到base_link下的一个角度范围
     try
     {
       tf_->transformQuaternion(base_frame_id_, min_q, min_q);
@@ -1574,7 +1578,8 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     ROS_DEBUG("Laser %d angles in base frame: min: %.3f inc: %.3f", laser_index, angle_min, angle_increment);
 
     // Apply range min/max thresholds, if the user supplied them
-    //激光的最大最小值是可以设置的，不设置的话，就从激光原始数据中获得。这个值好像在laser的package中写死了的
+    // 激光的最大最小值是可以设置的，不设置的话，就从激光原始数据中获得。
+    // 默认-1,所以会从激光雷达数据中读取范围
     if(laser_max_range_ > 0.0)
       ldata.range_max = std::min(laser_scan->range_max, (float)laser_max_range_);
     else//-1时默认使用激光雷达信息的max。似然域模型会丢掉最大距离的点
@@ -1626,7 +1631,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       resampled = true;
     }
 
-    //重采样后，样本数量应该是有变化的。去掉了一些权值低的粒子，增加了权值高的粒子
+    // 重采样后，样本数量应该是有变化的。去掉了一些权值低的粒子，增加了权值高的粒子
     pf_sample_set_t* set = pf_->sets + pf_->current_set;
     ROS_DEBUG("Num samples: %d\n", set->sample_count);
 
@@ -1656,19 +1661,19 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     // Read out the current hypotheses
     double max_weight = 0.0;
     int max_weight_hyp = -1;
+    // 包含权重,位姿,位姿方差
     std::vector<amcl_hyp_t> hyps;
-    //所以粒子是聚类后保存起来的，而不是看单个粒子的权重
+    // 所以粒子是聚类后保存起来的，而不是看单个粒子的权重
     hyps.resize(pf_->sets[pf_->current_set].cluster_count);
 
     //遍历聚类后的粒子集，选择权重最大的粒子集，该粒子集的平均位姿就是本次更新后的机器人估计位姿，以下的代码目的都是为了计算出权值最大的估计位姿并发送话题与TF变换
-    for(int hyp_count = 0;
-        hyp_count < pf_->sets[pf_->current_set].cluster_count; hyp_count++)
+    for(int hyp_count = 0; hyp_count < pf_->sets[pf_->current_set].cluster_count; hyp_count++)
     {
       double weight;
       //用来保存位姿
       pf_vector_t pose_mean;
       pf_matrix_t pose_cov;
-      //获取聚类clusters的状态
+      // 获取聚类clusters的状态
       if (!pf_get_cluster_stats(pf_, hyp_count, &weight, &pose_mean, &pose_cov))
       {
         ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
@@ -1723,6 +1728,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
                             p.pose.pose.orientation);
       // Copy in the covariance, converting from 3-D to 6-D
       pf_sample_set_t* set = pf_->sets + pf_->current_set;
+      // 这里是x,y的协方差
       for(int i=0; i<2; i++)
       {
         for(int j=0; j<2; j++)
@@ -1736,6 +1742,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       // Report the overall filter covariance, rather than the
       // covariance for the highest-weight cluster
       //p.covariance[6*5+5] = hyps[max_weight_hyp].pf_pose_cov.m[2][2];
+      // 这里保存yaw的协方差
       p.pose.covariance[6*5+5] = set->cov.m[2][2];
 
       /*
@@ -1758,25 +1765,29 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
                hyps[max_weight_hyp].pf_pose_mean.v[2]);
 
       // subtracting base to odom from map to base and send map to odom instead
-      // base to odom是里程计计算出来的，map to base是粒子滤波估计出来的。根据这二者从而计算出odom to map
+      // base to odom是里程计计算出来的，map to base是粒子滤波估计出来的。后者减去前者从而计算出map to odom
       //表示odom在map的位姿
       tf::Stamped<tf::Pose> odom_to_map;
       try
       {
-        //这个tf是map -> base_link，由粒子滤波计算出来的,base_link在地图中的坐标
+        //由粒子滤波计算出来的,base_link在地图中的坐标
+        // 定义一个Pose,base_link_to_map
         tf::Transform tmp_tf(tf::createQuaternionFromYaw(hyps[max_weight_hyp].pf_pose_mean.v[2]),
                              tf::Vector3(hyps[max_weight_hyp].pf_pose_mean.v[0],
                                          hyps[max_weight_hyp].pf_pose_mean.v[1],
                                          0.0));
-        //定义一个位姿,frame为base_link，为base_link在map坐标系下的位姿
-        tf::Stamped<tf::Pose> tmp_tf_stamped (tmp_tf.inverse(),
+        //定义一个位姿,不是一个tf.frame为base_link，为base_link在map坐标系下的位姿
+        tf::Stamped<tf::Pose> tmp_tf_stamped (tmp_tf.inverse(),     // 模板类型是Pose,但是传入的却是transform.一个意思,Pose是transform的别名
                                               laser_scan->header.stamp,
                                               base_frame_id_);
-        //base_link to odom的变换，是里程计发布的
-        //这里根据base_link to map 的变换，转到odom坐标系下。前者里程计给出来了，这样就能算出odom to map
-        this->tf_->transformPose(odom_frame_id_,
-                                 tmp_tf_stamped,
-                                 odom_to_map);
+        // base_link to odom的变换，是里程计发布的
+        //这里根据base_link to map 的变换，转到odom坐标系下。odom_to_base_link是已经存在tf树中了，这样就能算出odom to map
+        // odom_to_map是两个位移相减得到的.base_link_to_odom有累计误差,所以odom_to_map会越来越偏
+        // 这个不是tf变换,而是根据stamp_in和target_frame,找出stamp_out
+        // 不知道怎么实现的.可能是根据stamped_in的frame_id以及pose,推算得到base_link_to_map的变换,再根据target_frame为odom(odom_to_base_link的tf已经存在了),从而得到odom与map的tf
+        this->tf_->transformPose(odom_frame_id_,    // target_frame
+                                 tmp_tf_stamped,    // stamp_in,其实用也只用了frame_id而已吧/没有,因为无法从tf中找出odom_to_map,所以这里还用到了base_link_to_map
+                                 odom_to_map);      // stamp_out
       }
       catch(tf::TransformException)
       {
@@ -1800,7 +1811,8 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
         tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(),
                                             transform_expiration,
                                             global_frame_id_, odom_frame_id_);
-        //不知道这里发布odom_to_map的tf是干嘛，是不是给pf定位用的？
+        // 不知道这里发布odom_to_map的tf是干嘛，是不是给pf定位用的？
+        // 保持tf树的完整性,这样子rqt_tf_tree就完整了
         this->tfb_->sendTransform(tmp_tf_stamped);
         sent_first_transform_ = true;
       }
