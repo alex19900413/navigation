@@ -43,6 +43,7 @@
 
 namespace base_local_planner {
 
+// 不是这个函数
 void SimpleTrajectoryGenerator::initialise(
     const Eigen::Vector3f& pos,
     const Eigen::Vector3f& vel,
@@ -185,7 +186,7 @@ bool SimpleTrajectoryGenerator::nextTrajectory(Trajectory &comp_traj) {
 
 /**
  * @param pos current position of robot
- * @param vel desired velocity for sampling，机器人当前速度
+ * @param vel desired velocity for sampling，机器人当前速度,根据里程计算出来的
  * @param sample_target_vel 这是采样速度中的一个速度样本
  * 生成轨迹的思路：根据sim_time，采样速度，以及粒度，计算出num_steps。表示将当前traj分成多少个点组成
  * 每个点的位姿，

@@ -934,7 +934,7 @@ namespace move_base {
       ros::WallTime start = ros::WallTime::now();
 
       //the real work on pursuing a goal is done here
-      //判断是否到达目标goal
+      //判断是否到达目标goal, 让局部规划去操作
       bool done = executeCycle(goal, global_plan);
 
       //if we're done, then we'll return from execute

@@ -197,7 +197,7 @@ namespace dwa_local_planner {
       return false;
     }
 
-    //这里没看懂
+    //这里确实里程计的速度,用里程计的速度来生成路径
     tf::Stamped<tf::Pose> robot_vel;
     //得到的是一个由速度算出来的tf,这个stamped对象的frame_id是base_link
     odom_helper_.getRobotVel(robot_vel);
